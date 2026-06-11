@@ -1,0 +1,50 @@
+{
+  "plugin_id": "silo.manga-metadata",
+  "version": "0.1.0",
+  "checksum": "__CHECKSUM__",
+  "silo_api_version": "v1",
+  "supported_platforms": [
+    {
+      "os": "darwin",
+      "arch": "arm64"
+    },
+    {
+      "os": "linux",
+      "arch": "amd64"
+    },
+    {
+      "os": "linux",
+      "arch": "arm64"
+    }
+  ],
+  "capabilities": [
+    {
+      "type": "metadata_provider.v1",
+      "id": "manga-metadata",
+      "display_name": "Manga Metadata (AniList + MangaDex)",
+      "description": "Metadata provider for manga items. Wraps AniList (canonical) with a MangaDex fallback.",
+      "metadata": {
+        "default_priority": {
+          "manga": 1
+        }
+      }
+    }
+  ],
+  "global_config_schema": [
+    {
+      "key": "enabled_sources",
+      "title": "Enabled sources",
+      "description": "Comma-separated source IDs to search. Empty uses the default source set.",
+      "json_schema": "{\"type\":\"object\",\"properties\":{\"value\":{\"type\":\"string\"}}}",
+      "admin_form": {
+        "fields": [
+          {
+            "key": "value",
+            "label": "Source IDs",
+            "control": "ADMIN_FORM_CONTROL_TEXT"
+          }
+        ]
+      }
+    }
+  ]
+}
