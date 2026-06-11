@@ -1,0 +1,1 @@
+# silo-plugin-manga-metadata
