@@ -4,8 +4,10 @@ go 1.26.0
 
 require (
 	github.com/Silo-Server/silo-plugin-sdk v0.7.0
+	github.com/klauspost/compress v1.18.6
 	golang.org/x/time v0.15.0
 	google.golang.org/protobuf v1.36.11
+	modernc.org/sqlite v1.52.0
 )
 
 require (
@@ -16,7 +18,6 @@ require (
 	github.com/hashicorp/go-hclog v1.6.3 // indirect
 	github.com/hashicorp/go-plugin v1.7.0 // indirect
 	github.com/hashicorp/yamux v0.1.2 // indirect
-	github.com/klauspost/compress v1.18.6 // indirect
 	github.com/mattn/go-colorable v0.1.12 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
@@ -30,5 +31,4 @@ require (
 	modernc.org/libc v1.72.3 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
-	modernc.org/sqlite v1.52.0 // indirect
 )
