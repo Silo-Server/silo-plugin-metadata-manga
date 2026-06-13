@@ -4,9 +4,16 @@ import (
 	"context"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/Silo-Server/silo-plugin-manga-metadata/metadata"
 )
+
+type cachedMangaBakaSeries struct {
+	series  mangaBakaSeries
+	expires time.Time
+}
 
 // mangaBakaBackend is the lookup surface shared by the live REST backend and
 // the offline dump backend. MangaBakaSource picks between them per call.
@@ -35,10 +42,49 @@ type MangaBakaSource struct {
 	dump   mangaBakaBackend
 	live   mangaBakaBackend
 	banner bannerFunc
+
+	mu     sync.Mutex
+	recent map[string]cachedMangaBakaSeries
 }
 
 func newMangaBakaSourceWithBackends(dump, live mangaBakaBackend, banner bannerFunc) *MangaBakaSource {
-	return &MangaBakaSource{dump: dump, live: live, banner: banner}
+	return &MangaBakaSource{
+		dump:   dump,
+		live:   live,
+		banner: banner,
+		recent: make(map[string]cachedMangaBakaSeries),
+	}
+}
+
+func (s *MangaBakaSource) cachePut(series mangaBakaSeries) {
+	id := strconv.Itoa(series.ID)
+	if id == "" || id == "0" {
+		return
+	}
+	now := time.Now()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.recent) >= fetchCacheMax {
+		for k, entry := range s.recent {
+			if now.After(entry.expires) {
+				delete(s.recent, k)
+			}
+		}
+		if len(s.recent) >= fetchCacheMax {
+			s.recent = make(map[string]cachedMangaBakaSeries)
+		}
+	}
+	s.recent[id] = cachedMangaBakaSeries{series: series, expires: now.Add(fetchCacheTTL)}
+}
+
+func (s *MangaBakaSource) cacheGet(id string) (mangaBakaSeries, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entry, ok := s.recent[id]
+	if !ok || time.Now().After(entry.expires) {
+		return mangaBakaSeries{}, false
+	}
+	return entry.series, true
 }
 
 func (s *MangaBakaSource) ID() string { return mangaBakaProviderID }
@@ -83,6 +129,7 @@ func (s *MangaBakaSource) Search(ctx context.Context, q metadata.SearchQuery) ([
 		if best == nil {
 			continue
 		}
+		s.cachePut(*best)
 		match := toMatchFromMangaBaka(*best)
 		s.enrichBanner(ctx, *best, &match)
 		return []metadata.Match{match}, nil
@@ -91,11 +138,16 @@ func (s *MangaBakaSource) Search(ctx context.Context, q metadata.SearchQuery) ([
 }
 
 func (s *MangaBakaSource) Fetch(ctx context.Context, id string) (*metadata.Match, error) {
+	id = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(id), mangaBakaProviderID+":"))
+	if series, ok := s.cacheGet(id); ok {
+		match := toMatchFromMangaBaka(series)
+		s.enrichBanner(ctx, series, &match)
+		return &match, nil
+	}
 	backend := s.backend()
 	if backend == nil {
 		return nil, nil
 	}
-	id = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(id), mangaBakaProviderID+":"))
 	series, err := backend.fetch(ctx, id)
 	if err != nil {
 		return nil, err

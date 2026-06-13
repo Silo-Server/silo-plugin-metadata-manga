@@ -69,10 +69,18 @@ func (e *aniListBannerEnricher) cacheGet(id int) (string, bool) {
 }
 
 func (e *aniListBannerEnricher) cachePut(id int, url string) {
+	now := time.Now()
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if len(e.cache) >= fetchCacheMax {
-		e.cache = make(map[int]bannerCacheEntry)
+		for k, entry := range e.cache {
+			if now.After(entry.expires) {
+				delete(e.cache, k)
+			}
+		}
+		if len(e.cache) >= fetchCacheMax {
+			e.cache = make(map[int]bannerCacheEntry)
+		}
 	}
-	e.cache[id] = bannerCacheEntry{url: url, expires: time.Now().Add(fetchCacheTTL)}
+	e.cache[id] = bannerCacheEntry{url: url, expires: now.Add(fetchCacheTTL)}
 }

@@ -27,6 +27,22 @@ func (s *stubBackend) fetch(_ context.Context, id string) (*mangaBakaSeries, err
 	return nil, nil
 }
 
+// countingBackend wraps a stubBackend and counts fetch calls so tests can
+// assert whether a backend round-trip happened.
+type countingBackend struct {
+	stub       *stubBackend
+	fetchCalls int
+}
+
+func (c *countingBackend) ready() bool { return c.stub.isReady }
+func (c *countingBackend) search(ctx context.Context, term string) ([]mangaBakaSeries, error) {
+	return c.stub.search(ctx, term)
+}
+func (c *countingBackend) fetch(ctx context.Context, id string) (*mangaBakaSeries, error) {
+	c.fetchCalls++
+	return c.stub.fetch(ctx, id)
+}
+
 func TestMangaBakaSourcePrefersDumpWhenReady(t *testing.T) {
 	dump := &stubBackend{isReady: true, series: []mangaBakaSeries{mbSeries(1, "Chainsaw Man")}}
 	live := &stubBackend{isReady: true, series: []mangaBakaSeries{mbSeries(2, "Wrong")}}
@@ -88,5 +104,55 @@ func TestMangaBakaSourceEnrichesBanner(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].BannerURL != "https://anilist/banner.jpg" {
 		t.Fatalf("banner not enriched: %+v", got)
+	}
+}
+
+// TestMangaBakaSourceFetchUsesSearchCache verifies that a Fetch for an id
+// previously seen via Search is served from the in-memory cache, without
+// calling the backend's fetch method.
+func TestMangaBakaSourceFetchUsesSearchCache(t *testing.T) {
+	series := mbSeries(42, "Chainsaw Man")
+	cb := &countingBackend{stub: &stubBackend{isReady: true, series: []mangaBakaSeries{series}}}
+	src := newMangaBakaSourceWithBackends(cb, &stubBackend{}, nil)
+
+	// Populate the cache via Search.
+	results, err := src.Search(context.Background(), metadata.SearchQuery{Title: "Chainsaw Man"})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(results) != 1 || results[0].ProviderID != "42" {
+		t.Fatalf("Search returned unexpected results: %+v", results)
+	}
+
+	// Fetch must not call the backend — served from cache.
+	match, err := src.Fetch(context.Background(), "mangabaka:42")
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if match == nil || match.ProviderID != "42" {
+		t.Fatalf("Fetch returned unexpected match: %+v", match)
+	}
+	if cb.fetchCalls != 0 {
+		t.Fatalf("expected 0 backend fetch calls, got %d", cb.fetchCalls)
+	}
+}
+
+// TestMangaBakaSourceFetchCallsBackendForUnseenID verifies that Fetch for an
+// id not previously populated by Search does call the backend.
+func TestMangaBakaSourceFetchCallsBackendForUnseenID(t *testing.T) {
+	series := mbSeries(99, "Fire Punch")
+	cb := &countingBackend{stub: &stubBackend{isReady: true, series: []mangaBakaSeries{series}}}
+	src := newMangaBakaSourceWithBackends(cb, &stubBackend{}, nil)
+
+	// Do NOT call Search first — the cache should be empty for id "99".
+	match, err := src.Fetch(context.Background(), "mangabaka:99")
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if match == nil || match.ProviderID != "99" {
+		t.Fatalf("Fetch returned unexpected match: %+v", match)
+	}
+	if cb.fetchCalls != 1 {
+		t.Fatalf("expected 1 backend fetch call, got %d", cb.fetchCalls)
 	}
 }
