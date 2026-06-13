@@ -22,7 +22,7 @@
       "type": "metadata_provider.v1",
       "id": "manga-metadata",
       "display_name": "Manga Metadata (MangaBaka)",
-      "description": "Metadata provider for manga items. Primary source MangaBaka (aggregating AniList, MyAnimeList, MangaUpdates, Kitsu, Anime-Planet, Shikimori) with a MangaDex deep fallback and AniList banner backdrops.",
+      "description": "Rich manga metadata from MangaBaka — covers, synopsis, authors, genres, publication status, publisher, and cross-provider IDs — aggregating AniList, MyAnimeList, MangaUpdates, Kitsu, Anime-Planet, and Shikimori, with a MangaDex deep fallback and AniList banner backdrops. Optional offline mode downloads MangaBaka's database for fast, rate-limit-free matching on large libraries.",
       "metadata": {
         "default_priority": {
           "manga": 1
