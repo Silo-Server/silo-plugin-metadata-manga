@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -197,6 +198,18 @@ func providerOptionsFromConfig(entries []*pluginv1.ConfigEntry) provider.Options
 			options.EnabledSources = append(options.EnabledSources, value)
 		case "default_region":
 			options.DefaultRegion = value
+		case "enable_local_dump":
+			options.EnableLocalDump = configEntryBoolDefault(entry.GetValue(), false)
+		case "dump_path":
+			options.DumpPath = value
+		case "dump_refresh_hours":
+			if n, ok := configEntryNumber(entry.GetValue()); ok && n > 0 {
+				options.DumpRefreshHours = n
+			}
+		case "enable_anilist_banners":
+			// Stored as "enable"; Options carries the inverse so the zero value
+			// (banners on) matches the default. Missing entry => default true.
+			options.DisableAniListBanners = !configEntryBoolDefault(entry.GetValue(), true)
 		}
 	}
 	return options
@@ -218,6 +231,48 @@ func configEntryString(value *structpb.Struct) string {
 		}
 	}
 	return ""
+}
+
+func configEntryBoolDefault(value *structpb.Struct, def bool) bool {
+	if value == nil {
+		return def
+	}
+	raw, ok := value.GetFields()["value"]
+	if !ok || raw == nil {
+		return def
+	}
+	switch raw.GetKind().(type) {
+	case *structpb.Value_BoolValue:
+		return raw.GetBoolValue()
+	case *structpb.Value_NumberValue:
+		return raw.GetNumberValue() != 0
+	case *structpb.Value_StringValue:
+		s := strings.ToLower(strings.TrimSpace(raw.GetStringValue()))
+		if s == "" {
+			return def
+		}
+		return s == "true" || s == "1" || s == "yes" || s == "on"
+	}
+	return def
+}
+
+func configEntryNumber(value *structpb.Struct) (int, bool) {
+	if value == nil {
+		return 0, false
+	}
+	raw, ok := value.GetFields()["value"]
+	if !ok || raw == nil {
+		return 0, false
+	}
+	switch raw.GetKind().(type) {
+	case *structpb.Value_NumberValue:
+		return int(raw.GetNumberValue()), true
+	case *structpb.Value_StringValue:
+		if n, err := strconv.Atoi(strings.TrimSpace(raw.GetStringValue())); err == nil {
+			return n, true
+		}
+	}
+	return 0, false
 }
 
 func firstText(values ...string) string {
