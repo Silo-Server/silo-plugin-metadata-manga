@@ -34,8 +34,12 @@ type Provider struct {
 }
 
 type Options struct {
-	EnabledSources []string
-	DefaultRegion  string
+	EnabledSources        []string
+	DefaultRegion         string
+	EnableLocalDump       bool
+	DumpPath              string
+	DumpRefreshHours      int
+	DisableAniListBanners bool
 }
 
 func NewProvider() *Provider {
@@ -69,7 +73,7 @@ func NewProviderWithSources(sources []Source) *Provider {
 
 // Search consults sources sequentially in registration order: the first
 // source with a confident match wins, and later sources are only reached as
-// fallbacks (AniList is canonical; MangaDex covers its gaps). Each source gets
+// fallbacks (MangaBaka is canonical; MangaDex covers its gaps). Each source gets
 // its OWN providerTimeout budget (a child of ctx) so a throttled/slow leading
 // source cannot consume the trailing source's window and starve the fallback.
 func (p *Provider) Search(ctx context.Context, q metadata.SearchQuery) ([]metadata.Match, error) {
@@ -124,12 +128,12 @@ func (p *Provider) Fetch(ctx context.Context, q metadata.SearchQuery) (*metadata
 	return nil, nil
 }
 
-// defaultSources returns the metadata sources in fallback order: AniList is
+// defaultSources returns the metadata sources in fallback order: MangaBaka is
 // the canonical source; MangaDex fills its gaps (licensed/western titles,
 // long-tail series). The enabled_sources config entry filters the set when
 // present.
 func defaultSources(options Options) []Source {
-	all := []Source{NewAniListSource(options), NewMangaDexSource(options)}
+	all := []Source{NewMangaBakaSource(options), NewMangaDexSource(options)}
 	enabled := enabledSourceSet(options.EnabledSources)
 	if len(enabled) == 0 {
 		return all

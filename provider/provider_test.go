@@ -98,6 +98,19 @@ func TestSearchPrefersFirstSourceMatch(t *testing.T) {
 	}
 }
 
+func TestDefaultSourcesAreMangaBakaThenMangaDex(t *testing.T) {
+	sources := defaultSources(Options{})
+	if len(sources) != 2 {
+		t.Fatalf("expected 2 sources, got %d", len(sources))
+	}
+	if sources[0].ID() != "mangabaka" {
+		t.Fatalf("first source = %q, want mangabaka", sources[0].ID())
+	}
+	if sources[1].ID() != "mangadex" {
+		t.Fatalf("second source = %q, want mangadex", sources[1].ID())
+	}
+}
+
 // A source with no confident match falls through to the next source.
 func TestSearchFallsBackToSecondSource(t *testing.T) {
 	second := metadata.Match{Provider: "mangadex", ProviderID: "uuid", Title: "X"}

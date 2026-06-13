@@ -101,3 +101,29 @@ func (s *MangaBakaSource) enrichBanner(ctx context.Context, series mangaBakaSeri
 		match.BannerURL = url
 	}
 }
+
+// NewMangaBakaSource builds the production source. The dump backend is created
+// only when opts.EnableLocalDump is set; it loads any existing index
+// immediately and kicks off a background refresh so a cold start serves from
+// the live backend until the dump is ready. Banner enrichment is enabled unless
+// opts.DisableAniListBanners is set.
+func NewMangaBakaSource(opts Options) *MangaBakaSource {
+	live := newLiveBackend()
+
+	var dump mangaBakaBackend
+	if opts.EnableLocalDump {
+		dir, err := resolveDumpDir(opts.DumpPath)
+		if err == nil {
+			db := newDumpBackend(dir, opts.DumpRefreshHours)
+			db.openExisting()
+			go db.maybeRefresh(context.Background())
+			dump = db
+		}
+	}
+
+	var banner bannerFunc
+	if !opts.DisableAniListBanners {
+		banner = newAniListBannerEnricher().banner
+	}
+	return newMangaBakaSourceWithBackends(dump, live, banner)
+}
