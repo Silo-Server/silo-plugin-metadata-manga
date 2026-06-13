@@ -12,13 +12,11 @@ import (
 )
 
 const (
-	// providerTimeout bounds one Search/Fetch call. It must absorb the worst
-	// realistic AniList path: up to three variant searches (original /
-	// scrubbed / subtitle-stripped), each paying a limiter queue wait behind
-	// concurrent workers (~8s), plus a 429 Retry-After sleep (capped at 10s)
-	// with a second queue wait for the retry token. The original 10s budget
-	// made every 429 — and many plain queue waits — fail with context
-	// deadline exceeded.
+	// providerTimeout bounds one Search/Fetch call against a single source. It
+	// must absorb the live MangaBaka path (a rate-limiter queue wait of ~2.1s/search
+	// plus a 429 Retry-After retry capped at 10s) and the optional AniList banner
+	// enrichment (another limiter wait); the dump backend path has no network wait.
+	// 45s leaves headroom under concurrent workers.
 	providerTimeout = 45 * time.Second
 )
 

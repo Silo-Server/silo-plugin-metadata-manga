@@ -15,9 +15,9 @@ const (
 	fetchCacheMax = 512
 )
 
-// searchTermReplacer normalizes typographic punctuation that AniList's search
-// treats literally: a curly apostrophe in the query yields zero results for
-// titles it would otherwise match exactly.
+// searchTermReplacer normalizes typographic punctuation that MangaBaka (and
+// MangaDex) search treats literally: a curly apostrophe in the query yields
+// zero results for titles it would otherwise match exactly.
 var searchTermReplacer = strings.NewReplacer(
 	"‘", "'", // ‘
 	"’", "'", // ’
@@ -104,8 +104,7 @@ var (
 	multiNewlinePattern = regexp.MustCompile(`\n{3,}`)
 )
 
-// cleanDescription flattens the HTML AniList embeds in descriptions even when
-// asked for plain text (asHtml:false still carries <i>, <br> and entities):
+// cleanDescription flattens HTML present in MangaBaka (and AniList) descriptions:
 // <br> runs become line breaks, remaining tags are dropped, entities decode,
 // and per-line whitespace is tidied.
 func cleanDescription(s string) string {

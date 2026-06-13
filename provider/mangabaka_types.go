@@ -14,7 +14,9 @@ const mangaBakaProviderID = "mangabaka"
 // shared by the live REST backend and the JSONL dump backend so both decode
 // into one struct and map through one function.
 type mangaBakaSeries struct {
-	ID              int                                  `json:"id"`
+	ID int `json:"id"`
+	// State is retained for potential merged-record filtering (e.g. skipping
+	// records where state != "active") once the host exposes that preference.
 	State           string                               `json:"state"`
 	Title           string                               `json:"title"`
 	NativeTitle     string                               `json:"native_title"`
@@ -28,7 +30,6 @@ type mangaBakaSeries struct {
 	Status          string                               `json:"status"`
 	ContentRating   string                               `json:"content_rating"`
 	Type            string                               `json:"type"`
-	Rating          float64                              `json:"rating"`
 	Genres          []string                             `json:"genres"`
 	Publishers      []string                             `json:"publishers"`
 	Source          map[string]mangaBakaSourceRef        `json:"source"`
@@ -37,7 +38,6 @@ type mangaBakaSeries struct {
 type mangaBakaSecondaryTitle struct {
 	Type  string `json:"type"`
 	Title string `json:"title"`
-	Note  string `json:"note"`
 }
 
 type mangaBakaCover struct {

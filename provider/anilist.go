@@ -25,54 +25,14 @@ var aniListLimiter = rate.NewLimiter(rate.Every(2100*time.Millisecond), 1)
 const aniListEndpoint = "https://graphql.anilist.co"
 
 type aniListMedia struct {
-	ID    int `json:"id"`
-	Title struct {
-		Romaji  string `json:"romaji"`
-		English string `json:"english"`
-		Native  string `json:"native"`
-	} `json:"title"`
-	Synonyms   []string `json:"synonyms"`
-	CoverImage struct {
-		ExtraLarge string `json:"extraLarge"`
-		Large      string `json:"large"`
-	} `json:"coverImage"`
-	BannerImage string   `json:"bannerImage"`
-	Description string   `json:"description"`
-	Status      string   `json:"status"`
-	Genres      []string `json:"genres"`
-	Format      string   `json:"format"`
-	Popularity  int      `json:"popularity"`
-	StartDate   struct {
-		Year int `json:"year"`
-	} `json:"startDate"`
-	SiteURL string `json:"siteUrl"`
-	Staff   struct {
-		Edges []struct {
-			Role string `json:"role"`
-			Node struct {
-				Name struct {
-					Full string `json:"full"`
-				} `json:"name"`
-			} `json:"node"`
-		} `json:"edges"`
-	} `json:"staff"`
+	ID          int    `json:"id"`
+	BannerImage string `json:"bannerImage"`
 }
 
 const aniListByIDQuery = `query ($id: Int) {
   Media(id: $id, type: MANGA) {
     id
-    title { romaji english native }
-    synonyms
-    coverImage { extraLarge large }
     bannerImage
-    description(asHtml: false)
-    status
-    genres
-    format
-    popularity
-    startDate { year }
-    siteUrl
-    staff { edges { role node { name { full } } } }
   }
 }`
 
