@@ -87,61 +87,11 @@ const prefixMinQueryLen = 12
 // MangaDex search has no popularity signal to break ties, so any ambiguity
 // stays nil rather than guessing.
 func pickConfidentMangaDexMatch(query string, candidates []mangaDexManga) *mangaDexManga {
-	want := normalizeTitle(query)
-	if want == "" {
-		return nil
-	}
-	wantPartBlind := normalizePartBlind(query)
-	queryPart := partNumber(query)
-
-	var exact, prefix, suffix []*mangaDexManga
-	for i := range candidates {
-		c := &candidates[i]
-		matched := false
-		for _, title := range c.titleValues() {
-			if normalizeTitle(title) == want {
-				exact = append(exact, c)
-				matched = true
-				break
-			}
-			if normalizePartBlind(title) == wantPartBlind {
-				// Don't let a part-blind match cross different explicit parts.
-				if tp := partNumber(title); queryPart != "" && tp != "" && queryPart != tp {
-					continue
-				}
-				exact = append(exact, c)
-				matched = true
-				break
-			}
-		}
-		if matched {
-			continue
-		}
-		for _, title := range c.titleValues() {
-			normalized := normalizeTitle(title)
-			if len(want) >= prefixMinQueryLen && strings.HasPrefix(normalized, want) {
-				prefix = append(prefix, c)
-				matched = true
-				break
-			}
-			if len(want) >= suffixMinQueryLen &&
-				strings.HasSuffix(normalized, want) && len(want)*2 >= len(normalized) {
-				suffix = append(suffix, c)
-				matched = true
-				break
-			}
-		}
-	}
-
-	for _, tier := range [][]*mangaDexManga{exact, prefix, suffix} {
-		if len(tier) == 1 {
-			return tier[0]
-		}
-		if len(tier) > 1 {
-			return nil
-		}
-	}
-	return nil
+	return pickConfidentMatch(query, matchConfig[mangaDexManga]{
+		candidates:   candidates,
+		titlesOf:     func(c *mangaDexManga) []string { return c.titleValues() },
+		enablePrefix: true,
+	})
 }
 
 func (s *MangaDexSource) Search(ctx context.Context, q metadata.SearchQuery) ([]metadata.Match, error) {
