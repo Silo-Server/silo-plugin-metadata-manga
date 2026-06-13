@@ -18,6 +18,52 @@ type matchConfig[T any] struct {
 	// accept returns false is skipped entirely (e.g. MangaBaka novel/type
 	// exclusion). nil accepts every candidate.
 	accept func(*T) bool
+	// dominanceScore, when non-nil, breaks an otherwise-ambiguous tier (more
+	// than one contender) in favour of a candidate that dwarfs every other by
+	// this score (see dominantCandidate). nil leaves ambiguous tiers as no
+	// match — the strict default.
+	dominanceScore func(*T) int
+}
+
+const (
+	// chapterDominanceRatio / chapterDominanceFloor gate the tie-break: a tied
+	// candidate wins only if it dwarfs every contender AND is a meaningful
+	// serialization in absolute terms — so a real series beats a same-titled
+	// one-shot/side-story/doujin, but two genuine works (e.g. the "One Punch
+	// Man" manga vs its webcomic, both long) stay ambiguous → no match.
+	chapterDominanceRatio = 5
+	chapterDominanceFloor = 20
+)
+
+// dominantCandidate returns the single candidate whose score overwhelmingly
+// dominates every other in tier (>= chapterDominanceRatio x the runner-up AND
+// >= chapterDominanceFloor in absolute terms), or nil when no candidate clearly
+// dominates (genuine ambiguity) or no score function is provided.
+func dominantCandidate[T any](tier []*T, score func(*T) int) *T {
+	if score == nil {
+		return nil
+	}
+	var top *T
+	topScore, secondScore := 0, 0
+	for _, c := range tier {
+		s := score(c)
+		switch {
+		case top == nil || s > topScore:
+			if top != nil && topScore > secondScore {
+				secondScore = topScore
+			}
+			top, topScore = c, s
+		case s > secondScore:
+			secondScore = s
+		}
+	}
+	if secondScore < 1 {
+		secondScore = 1
+	}
+	if top != nil && topScore >= chapterDominanceFloor && topScore >= chapterDominanceRatio*secondScore {
+		return top
+	}
+	return nil
 }
 
 // pickConfidentMatch applies the strict, normalize-then-exact confidence bar in
@@ -91,12 +137,19 @@ func pickConfidentMatch[T any](query string, cfg matchConfig[T]) *T {
 	}
 
 	for _, tier := range [][]*T{exact, prefix, suffix} {
+		if len(tier) == 0 {
+			continue
+		}
 		if len(tier) == 1 {
 			return tier[0]
 		}
-		if len(tier) > 1 {
-			return nil
+		// Multiple contenders: resolve only when one clearly dominates (a real
+		// serialization vs a same-titled one-shot/side-story); otherwise this is
+		// genuine ambiguity and stays a no match rather than guessing.
+		if best := dominantCandidate(tier, cfg.dominanceScore); best != nil {
+			return best
 		}
+		return nil
 	}
 	return nil
 }

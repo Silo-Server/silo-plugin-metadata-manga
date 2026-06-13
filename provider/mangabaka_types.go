@@ -33,6 +33,25 @@ type mangaBakaSeries struct {
 	Genres          []string                             `json:"genres"`
 	Publishers      []mangaBakaPublisher                 `json:"publishers"`
 	Source          map[string]mangaBakaSourceRef        `json:"source"`
+	// TotalChapters is a count MangaBaka returns as a string (e.g. "232"); used
+	// only as the matcher's dominance tie-break signal.
+	TotalChapters string `json:"total_chapters"`
+}
+
+// mangaBakaChapterCount parses the (string) chapter count for the matcher's
+// dominance tie-break; unparseable/empty counts score 0.
+func mangaBakaChapterCount(s mangaBakaSeries) int {
+	raw := strings.TrimSpace(s.TotalChapters)
+	if raw == "" {
+		return 0
+	}
+	if n, err := strconv.Atoi(raw); err == nil {
+		return n
+	}
+	if f, err := strconv.ParseFloat(raw, 64); err == nil && f > 0 {
+		return int(f)
+	}
+	return 0
 }
 
 type mangaBakaSecondaryTitle struct {

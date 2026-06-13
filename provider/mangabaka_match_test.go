@@ -50,6 +50,37 @@ func TestPickConfidentMangaBakaMatchNoMatch(t *testing.T) {
 	}
 }
 
+func mbSeriesChapters(id int, title, chapters string) mangaBakaSeries {
+	s := mbSeries(id, title)
+	s.TotalChapters = chapters
+	return s
+}
+
+func TestPickConfidentMangaBakaMatchChapterDominanceResolves(t *testing.T) {
+	// A real serialization (200 chapters) vs a same-titled side-story (3): the
+	// dominant serialization wins instead of resolving to no match.
+	cands := []mangaBakaSeries{
+		mbSeriesChapters(1, "Spy x Family", "200"),
+		mbSeriesChapters(2, "Spy x Family", "3"),
+	}
+	got := pickConfidentMangaBakaMatch("Spy x Family", cands)
+	if got == nil || got.ID != 1 {
+		t.Fatalf("chapter-dominant candidate should win, got %+v", got)
+	}
+}
+
+func TestPickConfidentMangaBakaMatchComparableChaptersStayAmbiguous(t *testing.T) {
+	// Two genuine works of comparable length (the "One Punch Man" manga vs its
+	// webcomic): neither dominates, so it stays a no match rather than a guess.
+	cands := []mangaBakaSeries{
+		mbSeriesChapters(1, "One Punch Man", "200"),
+		mbSeriesChapters(2, "One Punch Man", "180"),
+	}
+	if got := pickConfidentMangaBakaMatch("One Punch Man", cands); got != nil {
+		t.Fatalf("comparable-length works must stay ambiguous (nil), got %+v", got)
+	}
+}
+
 func TestPickConfidentMangaBakaMatchNovelExcluded(t *testing.T) {
 	// Two candidates with the same exact title: one manga (id 1), one novel (id 2).
 	// The matcher must return the manga, NOT nil from ambiguity and NOT the novel.
