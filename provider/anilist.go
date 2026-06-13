@@ -24,26 +24,6 @@ var aniListLimiter = rate.NewLimiter(rate.Every(2100*time.Millisecond), 1)
 
 const aniListEndpoint = "https://graphql.anilist.co"
 
-const aniListSearchQuery = `query ($search: String) {
-  Page(perPage: 10) {
-    media(search: $search, type: MANGA) {
-      id
-      title { romaji english native }
-      synonyms
-      coverImage { extraLarge large }
-      bannerImage
-      description(asHtml: false)
-      status
-      genres
-      format
-      popularity
-      startDate { year }
-      siteUrl
-      staff { edges { role node { name { full } } } }
-    }
-  }
-}`
-
 type aniListMedia struct {
 	ID    int `json:"id"`
 	Title struct {
@@ -114,26 +94,6 @@ func parseAniListByID(body []byte) (*aniListMedia, error) {
 	return resp.Data.Media, nil
 }
 
-func parseAniListSearch(body []byte) ([]aniListMedia, error) {
-	var resp struct {
-		Data struct {
-			Page struct {
-				Media []aniListMedia `json:"media"`
-			} `json:"Page"`
-		} `json:"data"`
-		Errors []struct {
-			Message string `json:"message"`
-		} `json:"errors"`
-	}
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, fmt.Errorf("anilist: decode: %w", err)
-	}
-	if len(resp.Errors) > 0 {
-		return nil, fmt.Errorf("anilist: %s", resp.Errors[0].Message)
-	}
-	return resp.Data.Page.Media, nil
-}
-
 // doAniListQuery POSTs a GraphQL query+variables to the AniList endpoint and
 // returns the (size-limited) response body, classifying transient failures.
 // It proactively rate-limits via aniListLimiter (≈28 req/min) and retries
@@ -200,14 +160,6 @@ func doAniListQuery(ctx context.Context, client *http.Client, endpoint, query st
 		raw, _, err = attempt()
 	}
 	return raw, err
-}
-
-func searchAniList(ctx context.Context, client *http.Client, endpoint, search string) ([]aniListMedia, error) {
-	raw, err := doAniListQuery(ctx, client, endpoint, aniListSearchQuery, map[string]any{"search": search})
-	if err != nil {
-		return nil, err
-	}
-	return parseAniListSearch(raw)
 }
 
 func fetchAniListByID(ctx context.Context, client *http.Client, endpoint string, id int) (*aniListMedia, error) {
