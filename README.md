@@ -3,8 +3,8 @@
 A [Silo](https://github.com/Silo-Server/silo-server) metadata provider plugin
 for **manga** libraries. It enriches `type='manga'` series with cover art,
 synopsis, genres, author/artist credits, publication year, a hero banner, and
-publication status by matching against [AniList](https://anilist.co) and, as a
-fallback, [MangaDex](https://mangadex.org).
+publication status by matching against [MangaBaka](https://mangabaka.org) and,
+as a deep fallback, [MangaDex](https://mangadex.org).
 
 ## Capability
 
@@ -14,37 +14,40 @@ fallback, [MangaDex](https://mangadex.org).
 
 ## Sources
 
-Sources are consulted sequentially; the first confident match wins:
+1. **MangaBaka** (canonical) — aggregates AniList, MyAnimeList, MangaUpdates,
+   Kitsu, Anime-Planet, and Shikimori. Used live via its REST API, or — when
+   `enable_local_dump` is on — via a locally-stored copy of its nightly
+   database for offline, rate-limit-free matching. Covers come from the
+   MangaBaka image CDN.
+2. **MangaDex** (deep fallback) — only consulted for titles MangaBaka does not
+   track (long-tail/scanlation). REST, no API key.
 
-1. **AniList** (canonical) — GraphQL, no API key. Cover (extra-large),
-   description (HTML-stripped), genres, story/art staff → authors, start year,
-   `bannerImage` → backdrop, and status (`RELEASING`/`FINISHED`/… normalized to
-   Ongoing/Completed/Hiatus/Cancelled/Upcoming).
-2. **MangaDex** (fallback) — REST, no API key. Only consulted when AniList has
-   no confident match (long-tail manga/manhwa/webtoons, licensed/western
-   titles). Covers via the MangaDex CDN, genre-group tags, author+artist.
+Hero **banners/backdrops** are fetched from AniList by id (MangaBaka records
+carry the AniList id), controllable via `enable_anilist_banners`.
 
 ### Matching
 
-Matching is deliberately strict to avoid wrong covers: exact-after-normalize on
-every localized title and alternate title, with tie-break tiers (unique
-MANGA-format over pilot one-shots, then popularity dominance), plus
-part-blind, prefix, and suffix tiers for franchise/edition naming. Ambiguous
-ties resolve to **no match** rather than guessing. The outbound search term is
-sanitized (typographic punctuation) and tried in scrubbed variants
-(release-group/edition junk, per-volume subtitle folders).
+Matching is deliberately strict to avoid wrong covers: exact-after-normalize
+across every localized and secondary title, with a part-blind tier for
+franchise/edition naming and a suffix tier for localized folder names that drop
+a franchise prefix. Ambiguous ties resolve to **no match** rather than guessing.
 
-Each source is rate-limited independently (AniList ≈28 req/min to stay under
-its degraded-mode ceiling; MangaDex ≈1 req/s) with 429 retry, and a matched
-record is cached so the host's follow-up `GetMetadata` does not spend a second
-request.
+### Configuration
 
-## Configuration
+| Key | Default | Purpose |
+|-----|---------|---------|
+| `enabled_sources` | _(all)_ | Comma-separated source filter (mangabaka, mangadex). |
+| `enable_local_dump` | off | Offline dump mode (~1.5GB disk). |
+| `dump_path` | OS cache dir | Override dump storage location. |
+| `dump_refresh_hours` | 168 | Dump refresh interval. |
+| `enable_anilist_banners` | on | AniList banner backdrops. |
 
-| Key               | Values                         | Default              |
-|-------------------|--------------------------------|----------------------|
-| `enabled_sources` | comma list of `anilist`,`mangadex` | both             |
-| `default_region`  | `english` \| anything else     | romaji-preferred     |
+## Attribution
+
+Metadata is sourced from [MangaBaka](https://mangabaka.org). MangaBaka original
+data is licensed under
+[CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/);
+upstream provider data is subject to each provider's own terms.
 
 ## Build
 

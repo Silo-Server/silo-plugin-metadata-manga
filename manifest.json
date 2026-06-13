@@ -21,8 +21,8 @@
     {
       "type": "metadata_provider.v1",
       "id": "manga-metadata",
-      "display_name": "Manga Metadata (AniList + MangaDex)",
-      "description": "Metadata provider for manga items. Wraps AniList (canonical) with a MangaDex fallback.",
+      "display_name": "Manga Metadata (MangaBaka)",
+      "description": "Metadata provider for manga items. Primary source MangaBaka (aggregating AniList, MyAnimeList, MangaUpdates, Kitsu, Anime-Planet, Shikimori) with a MangaDex deep fallback and AniList banner backdrops.",
       "metadata": {
         "default_priority": {
           "manga": 1
