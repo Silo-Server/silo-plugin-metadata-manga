@@ -63,3 +63,46 @@ func TestDownloadAndInstallAtomic(t *testing.T) {
 		t.Fatalf("temp file not cleaned up")
 	}
 }
+
+func TestBuildIndexAndLookup(t *testing.T) {
+	dir := t.TempDir()
+	jsonlPath := dir + "/series.jsonl"
+	dbPath := dir + "/index.sqlite"
+
+	jsonl := `{"id":1677,"title":"Chainsaw Man","type":"manga","secondary_titles":{"en":[{"type":"alternative","title":"Chain Saw Man"}]},"cover":{"raw":{"url":"https://img/cs.png"}},"source":{"anilist":{"id":105778}}}
+{"id":2,"title":"Naruto","type":"manga"}
+`
+	if err := os.WriteFile(jsonlPath, []byte(jsonl), 0o644); err != nil {
+		t.Fatalf("write jsonl: %v", err)
+	}
+
+	idx, err := buildDumpIndex(context.Background(), jsonlPath, dbPath)
+	if err != nil {
+		t.Fatalf("build index: %v", err)
+	}
+	defer idx.close()
+
+	got, err := idx.lookup(context.Background(), "Chainsaw Man")
+	if err != nil {
+		t.Fatalf("lookup: %v", err)
+	}
+	if len(got) == 0 || got[0].ID != 1677 {
+		t.Fatalf("primary lookup = %+v", got)
+	}
+
+	got2, err := idx.lookup(context.Background(), "Chain Saw Man")
+	if err != nil {
+		t.Fatalf("lookup secondary: %v", err)
+	}
+	if len(got2) == 0 || got2[0].ID != 1677 {
+		t.Fatalf("secondary lookup = %+v", got2)
+	}
+
+	none, err := idx.lookup(context.Background(), "Does Not Exist")
+	if err != nil {
+		t.Fatalf("lookup miss: %v", err)
+	}
+	if len(none) != 0 {
+		t.Fatalf("expected no rows, got %+v", none)
+	}
+}
