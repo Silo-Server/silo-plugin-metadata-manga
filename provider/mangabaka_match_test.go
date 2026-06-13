@@ -49,3 +49,48 @@ func TestPickConfidentMangaBakaMatchNoMatch(t *testing.T) {
 		t.Fatalf("want nil, got %+v", got)
 	}
 }
+
+func TestPickConfidentMangaBakaMatchNovelExcluded(t *testing.T) {
+	// Two candidates with the same exact title: one manga (id 1), one novel (id 2).
+	// The matcher must return the manga, NOT nil from ambiguity and NOT the novel.
+	manga := mbSeries(1, "Sword Art Online")
+	novel := mbSeries(2, "Sword Art Online")
+	novel.Type = "novel"
+	cands := []mangaBakaSeries{manga, novel}
+	got := pickConfidentMangaBakaMatch("Sword Art Online", cands)
+	if got == nil || got.ID != 1 {
+		t.Fatalf("expected manga (id 1), got %+v", got)
+	}
+}
+
+func TestPickConfidentMangaBakaMatchLightNovelExcluded(t *testing.T) {
+	// A single candidate with Type:"light_novel" and an exact title must return nil.
+	s := mbSeries(1, "Overlord")
+	s.Type = "light_novel"
+	cands := []mangaBakaSeries{s}
+	if got := pickConfidentMangaBakaMatch("Overlord", cands); got != nil {
+		t.Fatalf("light_novel candidate must be excluded, got %+v", got)
+	}
+}
+
+func TestAcceptMangaBakaType(t *testing.T) {
+	cases := []struct {
+		t      string
+		accept bool
+	}{
+		{"manga", true},
+		{"manhwa", true},
+		{"", true},
+		{"unknown", true},
+		{"novel", false},
+		{"light_novel", false},
+		{"light novel", false},
+		{"Novel", false},
+		{"Light_Novel", false},
+	}
+	for _, tc := range cases {
+		if got := acceptMangaBakaType(tc.t); got != tc.accept {
+			t.Errorf("acceptMangaBakaType(%q) = %v, want %v", tc.t, got, tc.accept)
+		}
+	}
+}

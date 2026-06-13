@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 )
 
@@ -47,5 +48,57 @@ func TestLiveBackendSearchAndFetch(t *testing.T) {
 	}
 	if one == nil || one.ID != 1677 || one.Cover.Raw.URL != "https://img/cover.png" {
 		t.Fatalf("fetch result = %+v", one)
+	}
+}
+
+// TestLiveBackend429RetrySucceeds verifies that a 429 on the first request is
+// retried and the second (200) response is used successfully.
+func TestLiveBackend429RetrySucceeds(t *testing.T) {
+	searchBody := `{"status":200,"data":[{"id":1,"title":"Test","type":"manga"}]}`
+
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := hits.Add(1)
+		if n == 1 {
+			w.Header().Set("Retry-After", "0")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(searchBody))
+	}))
+	defer srv.Close()
+
+	b := newLiveBackendWithEndpoint(srv.URL)
+	results, err := b.search(context.Background(), "Test")
+	if err != nil {
+		t.Fatalf("search should succeed after retry, got: %v", err)
+	}
+	if len(results) != 1 || results[0].ID != 1 {
+		t.Fatalf("unexpected results: %+v", results)
+	}
+	if got := hits.Load(); got != 2 {
+		t.Fatalf("server was hit %d times, want 2", got)
+	}
+}
+
+// TestLiveBackend429NoRetryLeft verifies that when both attempts return 429
+// the error is propagated to the caller.
+func TestLiveBackend429NoRetryLeft(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		w.Header().Set("Retry-After", "0")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	b := newLiveBackendWithEndpoint(srv.URL)
+	_, err := b.search(context.Background(), "Test")
+	if err == nil {
+		t.Fatal("expected an error when server always 429s, got nil")
+	}
+	if got := hits.Load(); got != 2 {
+		t.Fatalf("server was hit %d times, want 2", got)
 	}
 }

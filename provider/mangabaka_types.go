@@ -58,8 +58,16 @@ func (r mangaBakaSourceRef) idString() string {
 	if raw == "" || raw == "null" {
 		return ""
 	}
-	if s, err := strconv.Unquote(raw); err == nil {
+	// MangaBaka returns numeric ids (anilist, my_anime_list) and string ids
+	// (manga_updates, anime_planet) in the same map. Decode via JSON so
+	// JSON-specific escapes (\/ , \uXXXX) are handled correctly.
+	var s string
+	if err := json.Unmarshal(r.ID, &s); err == nil {
 		return strings.TrimSpace(s)
+	}
+	var n json.Number
+	if err := json.Unmarshal(r.ID, &n); err == nil {
+		return n.String()
 	}
 	return raw
 }

@@ -51,6 +51,27 @@ func TestToMatchFromMangaBakaMapsCoreFields(t *testing.T) {
 	}
 }
 
+func TestIDStringJSONDecode(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  []byte
+		want string
+	}{
+		{"json_slash_escape", []byte(`"a\/b"`), "a/b"},
+		{"numeric", []byte(`105778`), "105778"},
+		{"string_id", []byte(`"chainsaw-man"`), "chainsaw-man"},
+		{"null", []byte(`null`), ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := mangaBakaSourceRef{ID: tc.raw}
+			if got := r.idString(); got != tc.want {
+				t.Fatalf("idString(%s) = %q, want %q", tc.raw, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestAuthorsMergeDedupesArtists(t *testing.T) {
 	s := mangaBakaSeries{
 		Authors: []string{"A", "B"},

@@ -2,6 +2,18 @@ package provider
 
 import "strings"
 
+// acceptMangaBakaType excludes prose-novel records (which MangaBaka aggregates
+// alongside comics) so a light novel sharing a title cannot match a manga
+// folder. Unknown/empty types are accepted (lenient) to avoid over-rejecting.
+func acceptMangaBakaType(t string) bool {
+	switch strings.ToLower(strings.TrimSpace(t)) {
+	case "novel", "light_novel", "light novel":
+		return false
+	default:
+		return true
+	}
+}
+
 // pickConfidentMangaBakaMatch applies the same strict, normalize-then-exact
 // confidence bar used for the other sources, matched across every localized
 // and secondary title. MangaBaka de-duplicates upstream records (merged_with),
@@ -23,6 +35,9 @@ func pickConfidentMangaBakaMatch(query string, candidates []mangaBakaSeries) *ma
 	var exact, suffix []*mangaBakaSeries
 	for i := range candidates {
 		c := &candidates[i]
+		if !acceptMangaBakaType(c.Type) {
+			continue
+		}
 		matched := false
 		for _, title := range mangaBakaTitleValues(*c) {
 			normalized := normalizeTitle(title)

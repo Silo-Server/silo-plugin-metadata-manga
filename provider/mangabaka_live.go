@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -75,28 +76,67 @@ func (b *liveBackend) fetch(ctx context.Context, id string) (*mangaBakaSeries, e
 }
 
 func (b *liveBackend) getJSON(ctx context.Context, endpoint string, out any) error {
+	const maxAttempts = 2
+	for attempt := 1; ; attempt++ {
+		retryAfter, err := b.getJSONOnce(ctx, endpoint, out)
+		if err == nil {
+			return nil
+		}
+		if retryAfter < 0 || attempt >= maxAttempts {
+			return err // not a 429, or out of attempts
+		}
+		// 429: wait Retry-After (capped) then retry once.
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(retryAfter):
+		}
+	}
+}
+
+// getJSONOnce performs one request. On HTTP 429 it returns (waitDuration, err)
+// with waitDuration >= 0; on any other error it returns (-1, err); on success
+// (0, nil). The 429 wait is parsed from Retry-After (seconds), defaulting to 2s
+// and capped at 10s.
+func (b *liveBackend) getJSONOnce(ctx context.Context, endpoint string, out any) (time.Duration, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
-		return err
+		return -1, err
 	}
 	req.Header.Set("Accept", "application/json")
 	res, err := b.client.Do(req)
 	if err != nil {
-		return err
+		return -1, err
 	}
 	defer res.Body.Close()
 	if res.StatusCode == http.StatusTooManyRequests {
-		return fmt.Errorf("mangabaka: rate limited (429)")
+		return parseRetryAfter(res.Header.Get("Retry-After")), fmt.Errorf("mangabaka: rate limited (429)")
 	}
 	if res.StatusCode != http.StatusOK {
-		return fmt.Errorf("mangabaka: unexpected status %d", res.StatusCode)
+		return -1, fmt.Errorf("mangabaka: unexpected status %d", res.StatusCode)
 	}
 	body, err := io.ReadAll(io.LimitReader(res.Body, 8<<20))
 	if err != nil {
-		return err
+		return -1, err
 	}
 	if err := json.Unmarshal(body, out); err != nil {
-		return fmt.Errorf("mangabaka: decode: %w", err)
+		return -1, fmt.Errorf("mangabaka: decode: %w", err)
 	}
-	return nil
+	return 0, nil
+}
+
+// parseRetryAfter reads a Retry-After seconds value, defaulting to 2s and
+// capping at 10s.
+func parseRetryAfter(h string) time.Duration {
+	const def, max = 2 * time.Second, 10 * time.Second
+	if h = strings.TrimSpace(h); h != "" {
+		if n, err := strconv.Atoi(h); err == nil && n >= 0 {
+			d := time.Duration(n) * time.Second
+			if d > max {
+				return max
+			}
+			return d
+		}
+	}
+	return def
 }
