@@ -51,12 +51,22 @@ func (s *runtimeServer) GetManifest(context.Context, *pluginv1.GetManifestReques
 
 func (s *runtimeServer) Configure(_ context.Context, req *pluginv1.ConfigureRequest) (*pluginv1.ConfigureResponse, error) {
 	options := providerOptionsFromConfig(req.GetConfig())
+	newProvider := provider.NewProviderWithOptions(options)
+	newProvider.Start()
+
 	s.mu.Lock()
+	old := s.state.provider
 	s.state = runtimeState{
-		provider: provider.NewProviderWithOptions(options),
+		provider: newProvider,
 		options:  options,
 	}
 	s.mu.Unlock()
+
+	// Cancel the superseded provider's background lifecycle (the previous dump
+	// download/refresh goroutine) so a reconfigure never orphans it.
+	if old != nil {
+		_ = old.Close()
+	}
 	return &pluginv1.ConfigureResponse{}, nil
 }
 

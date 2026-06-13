@@ -20,6 +20,14 @@ type mangaBakaBackend interface {
 // source can be tested without HTTP and so enrichment can be disabled (nil).
 type bannerFunc func(ctx context.Context, anilistID int) (string, error)
 
+// lifecycleBackend is implemented by backends that own a cancellable background
+// lifecycle (the dump backend). It is kept separate from mangaBakaBackend so the
+// query-only live and stub backends are unaffected.
+type lifecycleBackend interface {
+	start()
+	stop()
+}
+
 // MangaBakaSource is the canonical manga metadata source. It prefers the local
 // dump backend when ready (offline, no rate limit) and otherwise uses the live
 // REST backend (also the cold-start path while a freshly enabled dump builds).
@@ -34,6 +42,24 @@ func newMangaBakaSourceWithBackends(dump, live mangaBakaBackend, banner bannerFu
 }
 
 func (s *MangaBakaSource) ID() string { return mangaBakaProviderID }
+
+// Start begins the dump backend's background lifecycle (download + periodic
+// refresh). It is a no-op when the dump backend is disabled. Lifecycle is owned
+// by the caller (main.go) so a reconfigure can cleanly stop the old source.
+func (s *MangaBakaSource) Start() {
+	if lc, ok := s.dump.(lifecycleBackend); ok {
+		lc.start()
+	}
+}
+
+// Close stops the dump backend's background lifecycle, cancelling any in-flight
+// download. It is a no-op when the dump backend is disabled.
+func (s *MangaBakaSource) Close() error {
+	if lc, ok := s.dump.(lifecycleBackend); ok {
+		lc.stop()
+	}
+	return nil
+}
 
 // backend returns the dump backend when it is ready, else the live backend.
 func (s *MangaBakaSource) backend() mangaBakaBackend {
@@ -102,11 +128,12 @@ func (s *MangaBakaSource) enrichBanner(ctx context.Context, series mangaBakaSeri
 	}
 }
 
-// NewMangaBakaSource builds the production source. The dump backend is created
-// only when opts.EnableLocalDump is set; it loads any existing index
-// immediately and kicks off a background refresh so a cold start serves from
-// the live backend until the dump is ready. Banner enrichment is enabled unless
-// opts.DisableAniListBanners is set.
+// NewMangaBakaSource builds the production source. The dump backend struct is
+// created only when opts.EnableLocalDump is set; the constructor does NO I/O and
+// launches NO goroutine — the caller drives the lifecycle via Start()/Close() so
+// a filtered-out source never downloads and a reconfigure cancels the old one.
+// Until the dump is ready the source serves from the live backend. Banner
+// enrichment is enabled unless opts.DisableAniListBanners is set.
 func NewMangaBakaSource(opts Options) *MangaBakaSource {
 	live := newLiveBackend()
 
@@ -114,10 +141,7 @@ func NewMangaBakaSource(opts Options) *MangaBakaSource {
 	if opts.EnableLocalDump {
 		dir, err := resolveDumpDir(opts.DumpPath)
 		if err == nil {
-			db := newDumpBackend(dir, opts.DumpRefreshHours)
-			db.openExisting()
-			go db.maybeRefresh(context.Background())
-			dump = db
+			dump = newDumpBackend(dir, opts.DumpRefreshHours)
 		}
 	}
 

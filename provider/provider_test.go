@@ -28,6 +28,42 @@ func (f *fakeSource) Fetch(context.Context, string) (*metadata.Match, error) {
 	return &m, f.err
 }
 
+// lifecycleSource is a fakeSource that also records Start()/Close() calls, used
+// to assert Provider.Start/Close fan out to every source.
+type lifecycleSource struct {
+	fakeSource
+	started bool
+	closed  bool
+}
+
+func (l *lifecycleSource) Start()       { l.started = true }
+func (l *lifecycleSource) Close() error { l.closed = true; return nil }
+
+func TestProviderStartStartsSources(t *testing.T) {
+	a := &lifecycleSource{fakeSource: fakeSource{id: "a"}}
+	b := &lifecycleSource{fakeSource: fakeSource{id: "b"}}
+	// A plain source without Start() must be skipped without panic.
+	p := NewProviderWithSources([]Source{a, &fakeSource{id: "plain"}, b})
+
+	p.Start()
+	if !a.started || !b.started {
+		t.Fatalf("Start did not fan out: a=%v b=%v", a.started, b.started)
+	}
+}
+
+func TestProviderCloseClosesSources(t *testing.T) {
+	a := &lifecycleSource{fakeSource: fakeSource{id: "a"}}
+	b := &lifecycleSource{fakeSource: fakeSource{id: "b"}}
+	p := NewProviderWithSources([]Source{a, &fakeSource{id: "plain"}, b})
+
+	if err := p.Close(); err != nil {
+		t.Fatalf("Close err = %v, want nil", err)
+	}
+	if !a.closed || !b.closed {
+		t.Fatalf("Close did not fan out: a=%v b=%v", a.closed, b.closed)
+	}
+}
+
 // A transient source failure (timeout, 429, network) must surface as a Search
 // error: the host stamps an empty-success result as a terminal "no match",
 // permanently excluding the item from future sweeps.

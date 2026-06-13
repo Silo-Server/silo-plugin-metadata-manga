@@ -141,12 +141,67 @@ func TestDumpBackendReadyAfterEnsure(t *testing.T) {
 	}
 }
 
-func TestIsStale(t *testing.T) {
-	if !isStale(time.Now().Add(-200*time.Hour), 168) {
-		t.Fatalf("200h-old dump should be stale at 168h threshold")
+// TestBuildIndexRecordsBuiltAt verifies #11: the build time is recorded inside
+// the index and readable via builtAt().
+func TestBuildIndexRecordsBuiltAt(t *testing.T) {
+	dir := t.TempDir()
+	jsonlPath := dir + "/series.jsonl"
+	if err := os.WriteFile(jsonlPath, []byte(`{"id":1,"title":"Naruto","type":"manga"}`+"\n"), 0o644); err != nil {
+		t.Fatalf("write jsonl: %v", err)
 	}
-	if isStale(time.Now().Add(-10*time.Hour), 168) {
-		t.Fatalf("10h-old dump should be fresh")
+	before := time.Now().Add(-time.Minute)
+	idx, err := buildDumpIndex(context.Background(), jsonlPath, dir+"/index.sqlite")
+	if err != nil {
+		t.Fatalf("build index: %v", err)
+	}
+	defer idx.close()
+
+	built, ok := idx.builtAt()
+	if !ok {
+		t.Fatalf("builtAt should be recorded")
+	}
+	if built.Before(before) || built.After(time.Now().Add(time.Minute)) {
+		t.Fatalf("builtAt = %v, want a recent time", built)
+	}
+}
+
+// TestDumpBackendStartLoadsExistingIndexThenStop verifies the lazy lifecycle:
+// the constructor does no I/O, start() loads a freshly-built (non-stale) index
+// via openExisting WITHOUT any network, and stop() cancels the loop.
+func TestDumpBackendStartLoadsExistingIndexThenStop(t *testing.T) {
+	dir := t.TempDir()
+	jsonlPath := dir + "/series.jsonl"
+	if err := os.WriteFile(jsonlPath, []byte(`{"id":1,"title":"Naruto","type":"manga"}`+"\n"), 0o644); err != nil {
+		t.Fatalf("write jsonl: %v", err)
+	}
+	idx, err := buildDumpIndex(context.Background(), jsonlPath, dir+"/index.sqlite")
+	if err != nil {
+		t.Fatalf("seed index: %v", err)
+	}
+	_ = idx.close()
+
+	b := newDumpBackend(dir, 168)
+	if b.ready() {
+		t.Fatalf("backend should not be ready before start (constructor does no I/O)")
+	}
+
+	b.start()
+	defer b.stop()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for !b.ready() {
+		if time.Now().After(deadline) {
+			t.Fatalf("backend never became ready after start")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	got, err := b.search(context.Background(), "Naruto")
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != 1 {
+		t.Fatalf("search = %+v", got)
 	}
 }
 

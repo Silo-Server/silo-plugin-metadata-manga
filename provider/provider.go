@@ -71,6 +71,29 @@ func NewProviderWithSources(sources []Source) *Provider {
 	return p
 }
 
+// Start begins any background lifecycle owned by the provider's sources (the
+// dump backend's download + refresh loop). The constructor never auto-starts;
+// lifecycle is owned by the caller (main.go) so a reconfigure can stop the old
+// provider before starting the new one.
+func (p *Provider) Start() {
+	for _, source := range p.sources {
+		if s, ok := source.(interface{ Start() }); ok {
+			s.Start()
+		}
+	}
+}
+
+// Close stops any background lifecycle owned by the provider's sources,
+// cancelling in-flight downloads. It is safe to call on a superseded provider.
+func (p *Provider) Close() error {
+	for _, source := range p.sources {
+		if c, ok := source.(interface{ Close() error }); ok {
+			_ = c.Close()
+		}
+	}
+	return nil
+}
+
 // Search consults sources sequentially in registration order: the first
 // source with a confident match wins, and later sources are only reached as
 // fallbacks (MangaBaka is canonical; MangaDex covers its gaps). Each source gets

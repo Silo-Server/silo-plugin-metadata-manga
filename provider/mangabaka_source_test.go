@@ -55,6 +55,21 @@ func TestMangaBakaSourceFallsBackToLiveWhenDumpNotReady(t *testing.T) {
 	}
 }
 
+// TestMangaBakaSourceStartCloseNoDumpIsNoop verifies that with the dump backend
+// disabled, Start()/Close() neither panic nor create any files.
+func TestMangaBakaSourceStartCloseNoDumpIsNoop(t *testing.T) {
+	src := NewMangaBakaSource(Options{})
+	src.Start()
+	if err := src.Close(); err != nil {
+		t.Fatalf("Close err = %v, want nil", err)
+	}
+	// Start/Close again to confirm idempotency without panic.
+	src.Start()
+	if err := src.Close(); err != nil {
+		t.Fatalf("second Close err = %v, want nil", err)
+	}
+}
+
 func TestMangaBakaSourceEnrichesBanner(t *testing.T) {
 	s := mbSeries(1, "Chainsaw Man")
 	s.Source = map[string]mangaBakaSourceRef{"anilist": {ID: []byte("105778")}}

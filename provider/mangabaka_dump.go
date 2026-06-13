@@ -104,7 +104,13 @@ const dumpIndexSchema = `
 CREATE TABLE IF NOT EXISTS series (id INTEGER PRIMARY KEY, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS titles (norm TEXT NOT NULL, series_id INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_titles_norm ON titles(norm);
+CREATE TABLE IF NOT EXISTS _meta (key TEXT PRIMARY KEY, value TEXT);
 `
+
+// metaBuiltAtKey is the _meta row that records when the index was built. The
+// dump backend uses this recorded build time (not the index file's mtime) to
+// decide staleness, so touch/restore/remount of the file cannot fool refresh.
+const metaBuiltAtKey = "built_at"
 
 // buildDumpIndex streams the decompressed JSONL at jsonlPath and writes a fresh
 // SQLite index at dbPath (atomically: build at dbPath+".tmp", then rename). It
@@ -123,6 +129,15 @@ func buildDumpIndex(ctx context.Context, jsonlPath, dbPath string) (*dumpIndex, 
 	}
 	if _, err := db.ExecContext(ctx, dumpIndexSchema); err != nil {
 		_ = db.Close()
+		return nil, err
+	}
+	// Record the build time inside the index so staleness is decided by the
+	// recorded version, not the file's mtime (#11).
+	if _, err := db.ExecContext(ctx,
+		"INSERT OR REPLACE INTO _meta(key, value) VALUES(?, ?)",
+		metaBuiltAtKey, time.Now().UTC().Format(time.RFC3339)); err != nil {
+		_ = db.Close()
+		_ = os.Remove(tmpDB)
 		return nil, err
 	}
 
@@ -227,6 +242,26 @@ func (i *dumpIndex) close() error {
 	return i.db.Close()
 }
 
+// builtAt returns the time recorded in _meta when the index was built. ok is
+// false when the row is missing or unparseable, in which case callers treat the
+// index as stale (forcing a safe rebuild).
+func (i *dumpIndex) builtAt() (time.Time, bool) {
+	if i == nil || i.db == nil {
+		return time.Time{}, false
+	}
+	row := i.db.QueryRowContext(context.Background(),
+		"SELECT value FROM _meta WHERE key = ?", metaBuiltAtKey)
+	var raw string
+	if err := row.Scan(&raw); err != nil {
+		return time.Time{}, false
+	}
+	t, err := time.Parse(time.RFC3339, strings.TrimSpace(raw))
+	if err != nil {
+		return time.Time{}, false
+	}
+	return t, true
+}
+
 // lookup returns every series whose normalized primary or secondary title
 // equals the normalized query. Confidence/tie-breaking is the matcher's job
 // (pickConfidentMangaBakaMatch); this only narrows the candidate set.
@@ -272,16 +307,23 @@ const (
 	dumpIndexFile = "index.sqlite"
 )
 
+// dumpRetryInterval is how long the run loop waits before retrying after a
+// failed or not-yet-ready refresh (cold-start download failure, build error).
+// Once the index is ready it switches to the configured refreshHours cadence.
+const dumpRetryInterval = 15 * time.Minute
+
 // dumpBackend manages the local dump lifecycle and answers lookups offline once
-// an index is loaded. It is safe for concurrent use; refreshes run in the
-// background under a single-flight guard so scans keep using the current index.
+// an index is loaded. It is safe for concurrent use. The constructor does no I/O
+// and launches no goroutine; call start() to begin the background lifecycle and
+// stop() to cancel it. Refreshes run in a single cancellable goroutine so scans
+// keep using the current index.
 type dumpBackend struct {
 	dir          string
 	refreshHours int
 
-	mu         sync.RWMutex
-	index      *dumpIndex
-	refreshing bool
+	mu     sync.RWMutex
+	index  *dumpIndex
+	cancel context.CancelFunc
 }
 
 func newDumpBackend(dir string, refreshHours int) *dumpBackend {
@@ -289,6 +331,48 @@ func newDumpBackend(dir string, refreshHours int) *dumpBackend {
 		refreshHours = 168
 	}
 	return &dumpBackend{dir: dir, refreshHours: refreshHours}
+}
+
+// start launches the background refresh loop. It is safe to call once per
+// backend; a second start replaces the previous loop (the old one is cancelled).
+func (b *dumpBackend) start() {
+	ctx, cancel := context.WithCancel(context.Background())
+	b.mu.Lock()
+	if b.cancel != nil {
+		b.cancel()
+	}
+	b.cancel = cancel
+	b.mu.Unlock()
+	go b.run(ctx)
+}
+
+// stop cancels the background refresh loop. It is idempotent.
+func (b *dumpBackend) stop() {
+	b.mu.Lock()
+	if b.cancel != nil {
+		b.cancel()
+		b.cancel = nil
+	}
+	b.mu.Unlock()
+}
+
+// run is the background lifecycle loop: attempt a refresh immediately, then wait
+// either the full refresh interval (once an index is ready) or the short retry
+// interval (cold start not yet ready / last attempt failed), all cancellable.
+func (b *dumpBackend) run(ctx context.Context) {
+	for {
+		b.refreshIfNeeded(ctx)
+
+		wait := dumpRetryInterval
+		if b.ready() {
+			wait = time.Duration(b.refreshHours) * time.Hour
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(wait):
+		}
+	}
 }
 
 func (b *dumpBackend) indexPath() string { return filepath.Join(b.dir, dumpIndexFile) }
@@ -319,30 +403,21 @@ func (b *dumpBackend) openExisting() bool {
 	return true
 }
 
-// maybeRefresh downloads a new dump and rebuilds the index when the current
-// index is missing or stale. It runs at most one refresh at a time; callers
-// invoke it in a goroutine so scanning is never blocked.
-func (b *dumpBackend) maybeRefresh(ctx context.Context) {
-	b.mu.Lock()
-	if b.refreshing {
-		b.mu.Unlock()
-		return
+// refreshIfNeeded loads any on-disk index without network, then downloads and
+// rebuilds only when the loaded index is missing or stale. Staleness is decided
+// by the build time recorded inside the index (#11), never the file's mtime. On
+// any download/build error it logs and returns, keeping the current index in
+// service; the run loop retries on its short cadence (#8).
+func (b *dumpBackend) refreshIfNeeded(ctx context.Context) {
+	// Load an existing on-disk index first so a fresh process can serve offline
+	// without any network use, and so staleness reads the recorded build time.
+	if !b.ready() {
+		b.openExisting()
 	}
-	if info, err := os.Stat(b.indexPath()); err == nil && !isStale(info.ModTime(), b.refreshHours) {
-		b.mu.Unlock()
-		if !b.ready() {
-			b.openExisting()
-		}
-		return
-	}
-	b.refreshing = true
-	b.mu.Unlock()
 
-	defer func() {
-		b.mu.Lock()
-		b.refreshing = false
-		b.mu.Unlock()
-	}()
+	if !b.isStale() {
+		return // current index is fresh enough; keep serving it.
+	}
 
 	if err := downloadAndDecompress(ctx, dumpDownloadURL, b.jsonlPath()); err != nil {
 		log.Printf("manga-metadata: dump download failed: %v", err)
@@ -362,29 +437,45 @@ func (b *dumpBackend) maybeRefresh(ctx context.Context) {
 	_ = os.Remove(b.jsonlPath()) // index is built; the raw JSONL is no longer needed
 }
 
+// isStale reports whether the in-memory index must be rebuilt. No index at all
+// is stale; an index whose recorded built_at is older than refreshHours is
+// stale; an index with a missing/unparseable built_at is treated as stale so a
+// safe rebuild records a fresh marker.
+func (b *dumpBackend) isStale() bool {
+	b.mu.RLock()
+	idx := b.index
+	b.mu.RUnlock()
+	if idx == nil {
+		return true
+	}
+	builtAt, ok := idx.builtAt()
+	if !ok {
+		return true
+	}
+	return time.Since(builtAt) > time.Duration(b.refreshHours)*time.Hour
+}
+
+// search holds the read lock for the whole query so a concurrent index swap
+// (which takes the write lock to close the old index) cannot close the handle
+// mid-query (#3).
 func (b *dumpBackend) search(ctx context.Context, term string) ([]mangaBakaSeries, error) {
 	b.mu.RLock()
-	idx := b.index
-	b.mu.RUnlock()
-	if idx == nil {
+	defer b.mu.RUnlock()
+	if b.index == nil {
 		return nil, nil
 	}
-	return idx.lookup(ctx, term)
+	return b.index.lookup(ctx, term)
 }
 
-// fetch resolves a series by MangaBaka id from the local index.
+// fetch resolves a series by MangaBaka id from the local index. Like search, it
+// holds the read lock for the whole query to stay safe against index swaps (#3).
 func (b *dumpBackend) fetch(ctx context.Context, id string) (*mangaBakaSeries, error) {
 	b.mu.RLock()
-	idx := b.index
-	b.mu.RUnlock()
-	if idx == nil {
+	defer b.mu.RUnlock()
+	if b.index == nil {
 		return nil, nil
 	}
-	return idx.fetchByID(ctx, id)
-}
-
-func isStale(modTime time.Time, refreshHours int) bool {
-	return time.Since(modTime) > time.Duration(refreshHours)*time.Hour
+	return b.index.fetchByID(ctx, id)
 }
 
 func (i *dumpIndex) fetchByID(ctx context.Context, id string) (*mangaBakaSeries, error) {
