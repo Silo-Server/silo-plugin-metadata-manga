@@ -380,6 +380,10 @@ func (b *dumpBackend) stop() {
 		b.cancel()
 		b.cancel = nil
 	}
+	if b.index != nil {
+		_ = b.index.close()
+		b.index = nil
+	}
 	b.mu.Unlock()
 }
 

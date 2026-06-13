@@ -43,9 +43,8 @@ func (e *aniListBannerEnricher) banner(ctx context.Context, anilistID int) (stri
 	if url, ok := e.cacheGet(anilistID); ok {
 		return url, nil
 	}
-	if err := aniListLimiter.Wait(ctx); err != nil {
-		return "", err
-	}
+	// fetchAniListByID paces itself via aniListLimiter (doAniListQuery); waiting
+	// here too would double-throttle every banner fetch.
 	media, err := fetchAniListByID(ctx, e.client, e.endpoint, anilistID)
 	if err != nil {
 		return "", err

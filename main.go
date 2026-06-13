@@ -258,11 +258,16 @@ func configEntryBoolDefault(value *structpb.Struct, def bool) bool {
 	case *structpb.Value_NumberValue:
 		return raw.GetNumberValue() != 0
 	case *structpb.Value_StringValue:
-		s := strings.ToLower(strings.TrimSpace(raw.GetStringValue()))
-		if s == "" {
+		switch strings.ToLower(strings.TrimSpace(raw.GetStringValue())) {
+		case "true", "1", "yes", "on":
+			return true
+		case "false", "0", "no", "off":
+			return false
+		default:
+			// Empty or unrecognized strings keep the caller's default rather
+			// than silently flipping the setting off.
 			return def
 		}
-		return s == "true" || s == "1" || s == "yes" || s == "on"
 	}
 	return def
 }
