@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/klauspost/compress/zstd"
 )
@@ -104,5 +105,47 @@ func TestBuildIndexAndLookup(t *testing.T) {
 	}
 	if len(none) != 0 {
 		t.Fatalf("expected no rows, got %+v", none)
+	}
+}
+
+func TestDumpBackendReadyAfterEnsure(t *testing.T) {
+	dir := t.TempDir()
+	// Pre-place a built index so ensure() does not need the network.
+	jsonlPath := dir + "/series.jsonl"
+	if err := os.WriteFile(jsonlPath, []byte(`{"id":1,"title":"Naruto","type":"manga"}`+"\n"), 0o644); err != nil {
+		t.Fatalf("write jsonl: %v", err)
+	}
+	idx, err := buildDumpIndex(context.Background(), jsonlPath, dir+"/index.sqlite")
+	if err != nil {
+		t.Fatalf("seed index: %v", err)
+	}
+	_ = idx.close()
+
+	b := newDumpBackend(dir, 168)
+	if b.ready() {
+		t.Fatalf("backend should not be ready before openExisting")
+	}
+	if !b.openExisting() {
+		t.Fatalf("openExisting should load the seeded index")
+	}
+	if !b.ready() {
+		t.Fatalf("backend should be ready after openExisting")
+	}
+
+	got, err := b.search(context.Background(), "Naruto")
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != 1 {
+		t.Fatalf("search = %+v", got)
+	}
+}
+
+func TestIsStale(t *testing.T) {
+	if !isStale(time.Now().Add(-200*time.Hour), 168) {
+		t.Fatalf("200h-old dump should be stale at 168h threshold")
+	}
+	if isStale(time.Now().Add(-10*time.Hour), 168) {
+		t.Fatalf("10h-old dump should be fresh")
 	}
 }

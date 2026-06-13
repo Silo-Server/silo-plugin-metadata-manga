@@ -7,10 +7,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/klauspost/compress/zstd"
@@ -248,4 +250,145 @@ func (i *dumpIndex) lookup(ctx context.Context, title string) ([]mangaBakaSeries
 		out = append(out, s)
 	}
 	return out, rows.Err()
+}
+
+const (
+	dumpJSONLFile = "series.jsonl"
+	dumpIndexFile = "index.sqlite"
+)
+
+// dumpBackend manages the local dump lifecycle and answers lookups offline once
+// an index is loaded. It is safe for concurrent use; refreshes run in the
+// background under a single-flight guard so scans keep using the current index.
+type dumpBackend struct {
+	dir          string
+	refreshHours int
+
+	mu         sync.RWMutex
+	index      *dumpIndex
+	refreshing bool
+}
+
+func newDumpBackend(dir string, refreshHours int) *dumpBackend {
+	if refreshHours <= 0 {
+		refreshHours = 168
+	}
+	return &dumpBackend{dir: dir, refreshHours: refreshHours}
+}
+
+func (b *dumpBackend) indexPath() string { return filepath.Join(b.dir, dumpIndexFile) }
+func (b *dumpBackend) jsonlPath() string { return filepath.Join(b.dir, dumpJSONLFile) }
+
+func (b *dumpBackend) ready() bool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.index != nil
+}
+
+// openExisting loads an already-built index from disk without any network use.
+// Returns false when no usable index exists yet (cold start).
+func (b *dumpBackend) openExisting() bool {
+	if _, err := os.Stat(b.indexPath()); err != nil {
+		return false
+	}
+	idx, err := openDumpIndex(b.indexPath())
+	if err != nil {
+		return false
+	}
+	b.mu.Lock()
+	if b.index != nil {
+		_ = b.index.close()
+	}
+	b.index = idx
+	b.mu.Unlock()
+	return true
+}
+
+// maybeRefresh downloads a new dump and rebuilds the index when the current
+// index is missing or stale. It runs at most one refresh at a time; callers
+// invoke it in a goroutine so scanning is never blocked.
+func (b *dumpBackend) maybeRefresh(ctx context.Context) {
+	b.mu.Lock()
+	if b.refreshing {
+		b.mu.Unlock()
+		return
+	}
+	if info, err := os.Stat(b.indexPath()); err == nil && !isStale(info.ModTime(), b.refreshHours) {
+		b.mu.Unlock()
+		if !b.ready() {
+			b.openExisting()
+		}
+		return
+	}
+	b.refreshing = true
+	b.mu.Unlock()
+
+	defer func() {
+		b.mu.Lock()
+		b.refreshing = false
+		b.mu.Unlock()
+	}()
+
+	if err := downloadAndDecompress(ctx, dumpDownloadURL, b.jsonlPath()); err != nil {
+		log.Printf("manga-metadata: dump download failed: %v", err)
+		return
+	}
+	idx, err := buildDumpIndex(ctx, b.jsonlPath(), b.indexPath())
+	if err != nil {
+		log.Printf("manga-metadata: dump index build failed: %v", err)
+		return
+	}
+	b.mu.Lock()
+	if b.index != nil {
+		_ = b.index.close()
+	}
+	b.index = idx
+	b.mu.Unlock()
+	_ = os.Remove(b.jsonlPath()) // index is built; the raw JSONL is no longer needed
+}
+
+func (b *dumpBackend) search(ctx context.Context, term string) ([]mangaBakaSeries, error) {
+	b.mu.RLock()
+	idx := b.index
+	b.mu.RUnlock()
+	if idx == nil {
+		return nil, nil
+	}
+	return idx.lookup(ctx, term)
+}
+
+// fetch resolves a series by MangaBaka id from the local index.
+func (b *dumpBackend) fetch(ctx context.Context, id string) (*mangaBakaSeries, error) {
+	b.mu.RLock()
+	idx := b.index
+	b.mu.RUnlock()
+	if idx == nil {
+		return nil, nil
+	}
+	return idx.fetchByID(ctx, id)
+}
+
+func isStale(modTime time.Time, refreshHours int) bool {
+	return time.Since(modTime) > time.Duration(refreshHours)*time.Hour
+}
+
+func (i *dumpIndex) fetchByID(ctx context.Context, id string) (*mangaBakaSeries, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil, nil
+	}
+	row := i.db.QueryRowContext(ctx, `SELECT json FROM series WHERE id = ?`, id)
+	var raw string
+	switch err := row.Scan(&raw); err {
+	case nil:
+	case sql.ErrNoRows:
+		return nil, nil
+	default:
+		return nil, err
+	}
+	var s mangaBakaSeries
+	if err := json.Unmarshal([]byte(raw), &s); err != nil {
+		return nil, err
+	}
+	return &s, nil
 }
