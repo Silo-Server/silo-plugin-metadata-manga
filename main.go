@@ -158,6 +158,7 @@ func metadataItemFromMatch(match metadata.Match, itemType string) (*pluginv1.Met
 		PosterPath:    strings.TrimSpace(match.CoverURL),
 		BackdropPath:  strings.TrimSpace(match.BannerURL),
 		Status:        strings.TrimSpace(match.Status),
+		ContentRating: strings.TrimSpace(match.ContentRating),
 		People:        peopleFromMatch(match),
 		ItemType:      strings.TrimSpace(itemType),
 	}, nil
