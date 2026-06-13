@@ -31,13 +31,22 @@ type mangaBakaSeries struct {
 	ContentRating   string                               `json:"content_rating"`
 	Type            string                               `json:"type"`
 	Genres          []string                             `json:"genres"`
-	Publishers      []string                             `json:"publishers"`
+	Publishers      []mangaBakaPublisher                 `json:"publishers"`
 	Source          map[string]mangaBakaSourceRef        `json:"source"`
 }
 
 type mangaBakaSecondaryTitle struct {
 	Type  string `json:"type"`
 	Title string `json:"title"`
+}
+
+// mangaBakaPublisher is one localized publisher entry. MangaBaka returns
+// publishers as objects (name/type/note), not bare strings, with type naming
+// the market ("English", "Korean", "Other").
+type mangaBakaPublisher struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+	Note string `json:"note"`
 }
 
 type mangaBakaCover struct {
@@ -137,12 +146,32 @@ func toMatchFromMangaBaka(s mangaBakaSeries) metadata.Match {
 		Genres:        trimmedNonEmpty(s.Genres),
 		Authors:       mangaBakaPeople(s),
 		PublishYear:   s.Year,
-		Publisher:     firstNonEmpty(s.Publishers...),
+		Publisher:     firstPublisherName(s.Publishers),
 		ExternalIDs:   mangaBakaExternalIDs(s),
 	}
 }
 
 func (s mangaBakaSeries) ProviderIDString() string { return strconv.Itoa(s.ID) }
+
+// firstPublisherName picks a publisher name for the host's Studios field,
+// preferring the English-market publisher (most useful for display) and falling
+// back to the first non-empty name.
+func firstPublisherName(pubs []mangaBakaPublisher) string {
+	var first string
+	for _, p := range pubs {
+		name := strings.TrimSpace(p.Name)
+		if name == "" {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(p.Type), "English") {
+			return name
+		}
+		if first == "" {
+			first = name
+		}
+	}
+	return first
+}
 
 func firstNonEmpty(values ...string) string {
 	for _, v := range values {
