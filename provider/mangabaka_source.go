@@ -1,0 +1,103 @@
+package provider
+
+import (
+	"context"
+	"strconv"
+	"strings"
+
+	"github.com/Silo-Server/silo-plugin-manga-metadata/metadata"
+)
+
+// mangaBakaBackend is the lookup surface shared by the live REST backend and
+// the offline dump backend. MangaBakaSource picks between them per call.
+type mangaBakaBackend interface {
+	ready() bool
+	search(ctx context.Context, term string) ([]mangaBakaSeries, error)
+	fetch(ctx context.Context, id string) (*mangaBakaSeries, error)
+}
+
+// bannerFunc fetches an AniList banner by numeric id. It is injected so the
+// source can be tested without HTTP and so enrichment can be disabled (nil).
+type bannerFunc func(ctx context.Context, anilistID int) (string, error)
+
+// MangaBakaSource is the canonical manga metadata source. It prefers the local
+// dump backend when ready (offline, no rate limit) and otherwise uses the live
+// REST backend (also the cold-start path while a freshly enabled dump builds).
+type MangaBakaSource struct {
+	dump   mangaBakaBackend
+	live   mangaBakaBackend
+	banner bannerFunc
+}
+
+func newMangaBakaSourceWithBackends(dump, live mangaBakaBackend, banner bannerFunc) *MangaBakaSource {
+	return &MangaBakaSource{dump: dump, live: live, banner: banner}
+}
+
+func (s *MangaBakaSource) ID() string { return mangaBakaProviderID }
+
+// backend returns the dump backend when it is ready, else the live backend.
+func (s *MangaBakaSource) backend() mangaBakaBackend {
+	if s.dump != nil && s.dump.ready() {
+		return s.dump
+	}
+	return s.live
+}
+
+func (s *MangaBakaSource) Search(ctx context.Context, q metadata.SearchQuery) ([]metadata.Match, error) {
+	backend := s.backend()
+	if backend == nil {
+		return nil, nil
+	}
+	for _, term := range searchTermVariants(q.Title) {
+		candidates, err := backend.search(ctx, term)
+		if err != nil {
+			return nil, err
+		}
+		best := pickConfidentMangaBakaMatch(term, candidates)
+		if best == nil {
+			continue
+		}
+		match := toMatchFromMangaBaka(*best)
+		s.enrichBanner(ctx, *best, &match)
+		return []metadata.Match{match}, nil
+	}
+	return nil, nil
+}
+
+func (s *MangaBakaSource) Fetch(ctx context.Context, id string) (*metadata.Match, error) {
+	backend := s.backend()
+	if backend == nil {
+		return nil, nil
+	}
+	id = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(id), mangaBakaProviderID+":"))
+	series, err := backend.fetch(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if series == nil {
+		return nil, nil
+	}
+	match := toMatchFromMangaBaka(*series)
+	s.enrichBanner(ctx, *series, &match)
+	return &match, nil
+}
+
+// enrichBanner fills BannerURL from AniList when a banner func is configured
+// and the record carries an anilist id. Failure is non-fatal: a cover-only
+// result still returns.
+func (s *MangaBakaSource) enrichBanner(ctx context.Context, series mangaBakaSeries, match *metadata.Match) {
+	if s.banner == nil {
+		return
+	}
+	ref, ok := series.Source["anilist"]
+	if !ok {
+		return
+	}
+	id, err := strconv.Atoi(ref.idString())
+	if err != nil || id <= 0 {
+		return
+	}
+	if url, err := s.banner(ctx, id); err == nil && url != "" {
+		match.BannerURL = url
+	}
+}

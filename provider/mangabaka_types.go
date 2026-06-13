@@ -134,6 +134,8 @@ func toMatchFromMangaBaka(s mangaBakaSeries) metadata.Match {
 	}
 }
 
+func (s mangaBakaSeries) ProviderIDString() string { return strconv.Itoa(s.ID) }
+
 func firstNonEmpty(values ...string) string {
 	for _, v := range values {
 		if v = strings.TrimSpace(v); v != "" {
