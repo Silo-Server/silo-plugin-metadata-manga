@@ -183,13 +183,23 @@ func ingestJSONL(ctx context.Context, db *sql.DB, jsonlPath string) error {
 			return err
 		}
 		seen := make(map[string]bool)
-		for _, title := range mangaBakaTitleValues(s) {
-			norm := normalizeTitle(title)
+		insertKey := func(norm string) error {
 			if norm == "" || seen[norm] {
-				continue
+				return nil
 			}
 			seen[norm] = true
-			if _, err := insTitle.ExecContext(ctx, norm, s.ID); err != nil {
+			_, err := insTitle.ExecContext(ctx, norm, s.ID)
+			return err
+		}
+		for _, title := range mangaBakaTitleValues(s) {
+			// Index both the exact-normalized and part-blind-normalized forms so
+			// the matcher's part-blind tier ("X Part 2" ≡ "X") has candidates
+			// offline, matching the live backend's recall.
+			if err := insertKey(normalizeTitle(title)); err != nil {
+				_ = tx.Rollback()
+				return err
+			}
+			if err := insertKey(normalizePartBlind(title)); err != nil {
 				_ = tx.Rollback()
 				return err
 			}
@@ -225,8 +235,13 @@ func (i *dumpIndex) lookup(ctx context.Context, title string) ([]mangaBakaSeries
 	if norm == "" {
 		return nil, nil
 	}
+	// Query the exact and part-blind normalized forms; the strict matcher
+	// (pickConfidentMangaBakaMatch) applies the final confidence bar and
+	// rejects mismatched explicit part numbers, so over-broad candidates here
+	// are harmless.
+	partBlind := normalizePartBlind(title)
 	rows, err := i.db.QueryContext(ctx,
-		`SELECT s.json FROM titles t JOIN series s ON s.id = t.series_id WHERE t.norm = ?`, norm)
+		`SELECT s.json FROM titles t JOIN series s ON s.id = t.series_id WHERE t.norm = ? OR t.norm = ?`, norm, partBlind)
 	if err != nil {
 		return nil, err
 	}

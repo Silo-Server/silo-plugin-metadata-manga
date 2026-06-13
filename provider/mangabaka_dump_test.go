@@ -149,3 +149,28 @@ func TestIsStale(t *testing.T) {
 		t.Fatalf("10h-old dump should be fresh")
 	}
 }
+
+func TestLookupPartBlindCandidate(t *testing.T) {
+	dir := t.TempDir()
+	jsonlPath := dir + "/series.jsonl"
+	dbPath := dir + "/index.sqlite"
+	// Stored title has an explicit "Part 2"; a base-title query must still
+	// surface it as a candidate via the part-blind index (the strict matcher
+	// applies the final confidence bar downstream).
+	jsonl := `{"id":7,"title":"JoJo's Bizarre Adventure Part 2","type":"manga"}` + "\n"
+	if err := os.WriteFile(jsonlPath, []byte(jsonl), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	idx, err := buildDumpIndex(context.Background(), jsonlPath, dbPath)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	defer idx.close()
+	got, err := idx.lookup(context.Background(), "JoJo's Bizarre Adventure")
+	if err != nil {
+		t.Fatalf("lookup: %v", err)
+	}
+	if len(got) == 0 || got[0].ID != 7 {
+		t.Fatalf("part-blind candidate not found: %+v", got)
+	}
+}
