@@ -1,6 +1,9 @@
 package provider
 
-import "strings"
+import (
+	"strings"
+	"unicode/utf8"
+)
 
 // acceptMangaBakaType excludes prose-novel records (which MangaBaka aggregates
 // alongside comics) so a light novel sharing a title cannot match a manga
@@ -38,8 +41,11 @@ func pickConfidentMangaBakaMatch(query string, candidates []mangaBakaSeries) *ma
 		if !acceptMangaBakaType(c.Type) {
 			continue
 		}
+		// Compute the candidate's title set once and reuse it across both the
+		// exact and suffix tiers (#15).
+		titles := mangaBakaTitleValues(*c)
 		matched := false
-		for _, title := range mangaBakaTitleValues(*c) {
+		for _, title := range titles {
 			normalized := normalizeTitle(title)
 			if normalized == want {
 				exact = append(exact, c)
@@ -58,10 +64,14 @@ func pickConfidentMangaBakaMatch(query string, candidates []mangaBakaSeries) *ma
 		if matched {
 			continue
 		}
-		if len(want) >= suffixMinQueryLen {
-			for _, title := range mangaBakaTitleValues(*c) {
+		if utf8.RuneCountInString(want) >= suffixMinQueryLen {
+			for _, title := range titles {
 				normalized := normalizeTitle(title)
-				if strings.HasSuffix(normalized, want) && len(want)*2 >= len(normalized) {
+				// Coverage compares rune counts (not bytes) so multi-byte (CJK)
+				// prefixes do not inflate the length and wrongly reject a valid
+				// suffix match (Finding A).
+				if strings.HasSuffix(normalized, want) &&
+					utf8.RuneCountInString(want)*2 >= utf8.RuneCountInString(normalized) {
 					suffix = append(suffix, c)
 					break
 				}

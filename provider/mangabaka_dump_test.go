@@ -205,6 +205,44 @@ func TestDumpBackendStartLoadsExistingIndexThenStop(t *testing.T) {
 	}
 }
 
+// TestLookupSuffixCandidate verifies #9: a query that is a SUFFIX of a stored
+// title (covering the franchise prefix drop, e.g. "Shield Hero" ->
+// "The Rising of the Shield Hero") surfaces offline via the reversed-norm
+// prefix GLOB, so the matcher's suffix tier has candidates.
+func TestLookupSuffixCandidate(t *testing.T) {
+	dir := t.TempDir()
+	jsonlPath := dir + "/series.jsonl"
+	dbPath := dir + "/index.sqlite"
+	jsonl := `{"id":9,"title":"The Rising of the Shield Hero","type":"manga"}` + "\n"
+	if err := os.WriteFile(jsonlPath, []byte(jsonl), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	idx, err := buildDumpIndex(context.Background(), jsonlPath, dbPath)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	defer idx.close()
+
+	got, err := idx.lookup(context.Background(), "Shield Hero")
+	if err != nil {
+		t.Fatalf("lookup: %v", err)
+	}
+	if len(got) == 0 || got[0].ID != 9 {
+		t.Fatalf("suffix candidate not found: %+v", got)
+	}
+
+	// A too-short normalized query ("Hero" -> 4 chars, below
+	// suffixMinQueryLen=8) must NOT trigger the suffix clause, so it returns no
+	// rows even though "...Shield Hero" ends with it.
+	none, err := idx.lookup(context.Background(), "Hero")
+	if err != nil {
+		t.Fatalf("lookup short: %v", err)
+	}
+	if len(none) != 0 {
+		t.Fatalf("short query must not trigger suffix glob, got %+v", none)
+	}
+}
+
 func TestLookupPartBlindCandidate(t *testing.T) {
 	dir := t.TempDir()
 	jsonlPath := dir + "/series.jsonl"

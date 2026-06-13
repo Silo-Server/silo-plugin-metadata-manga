@@ -102,10 +102,22 @@ type dumpIndex struct {
 
 const dumpIndexSchema = `
 CREATE TABLE IF NOT EXISTS series (id INTEGER PRIMARY KEY, json TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS titles (norm TEXT NOT NULL, series_id INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS titles (norm TEXT NOT NULL, rev TEXT NOT NULL, series_id INTEGER NOT NULL, UNIQUE(norm, series_id));
 CREATE INDEX IF NOT EXISTS idx_titles_norm ON titles(norm);
+CREATE INDEX IF NOT EXISTS idx_titles_rev ON titles(rev);
 CREATE TABLE IF NOT EXISTS _meta (key TEXT PRIMARY KEY, value TEXT);
 `
+
+// reverseRunes returns s with its runes in reverse order. Used to store a
+// reversed normalized title so a "titles ending with X" (suffix) query becomes
+// an index-friendly prefix GLOB on the reversed column.
+func reverseRunes(s string) string {
+	r := []rune(s)
+	for i, j := 0, len(r)-1; i < j; i, j = i+1, j-1 {
+		r[i], r[j] = r[j], r[i]
+	}
+	return string(r)
+}
 
 // metaBuiltAtKey is the _meta row that records when the index was built. The
 // dump backend uses this recorded build time (not the index file's mtime) to
@@ -173,7 +185,10 @@ func ingestJSONL(ctx context.Context, db *sql.DB, jsonlPath string) error {
 		_ = tx.Rollback()
 		return err
 	}
-	insTitle, err := tx.PrepareContext(ctx, "INSERT INTO titles(norm, series_id) VALUES(?, ?)")
+	// INSERT OR IGNORE relies on the UNIQUE(norm, series_id) constraint to
+	// collapse duplicate (norm, id) rows (e.g. when the exact and part-blind
+	// forms of a title are identical).
+	insTitle, err := tx.PrepareContext(ctx, "INSERT OR IGNORE INTO titles(norm, rev, series_id) VALUES(?, ?, ?)")
 	if err != nil {
 		_ = tx.Rollback()
 		return err
@@ -181,6 +196,8 @@ func ingestJSONL(ctx context.Context, db *sql.DB, jsonlPath string) error {
 
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 0, 1<<20), 8<<20) // some records are large
+	// One reusable per-record dedup set, cleared (not reallocated) each record.
+	seen := make(map[string]bool)
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		if len(line) == 0 {
@@ -197,13 +214,13 @@ func ingestJSONL(ctx context.Context, db *sql.DB, jsonlPath string) error {
 			_ = tx.Rollback()
 			return err
 		}
-		seen := make(map[string]bool)
+		clear(seen)
 		insertKey := func(norm string) error {
 			if norm == "" || seen[norm] {
 				return nil
 			}
 			seen[norm] = true
-			_, err := insTitle.ExecContext(ctx, norm, s.ID)
+			_, err := insTitle.ExecContext(ctx, norm, reverseRunes(norm), s.ID)
 			return err
 		}
 		for _, title := range mangaBakaTitleValues(s) {
@@ -275,8 +292,18 @@ func (i *dumpIndex) lookup(ctx context.Context, title string) ([]mangaBakaSeries
 	// rejects mismatched explicit part numbers, so over-broad candidates here
 	// are harmless.
 	partBlind := normalizePartBlind(title)
-	rows, err := i.db.QueryContext(ctx,
-		`SELECT s.json FROM titles t JOIN series s ON s.id = t.series_id WHERE t.norm = ? OR t.norm = ?`, norm, partBlind)
+	query := `SELECT s.json FROM titles t JOIN series s ON s.id = t.series_id WHERE t.norm = ? OR t.norm = ?`
+	args := []any{norm, partBlind}
+	// Surface suffix candidates (titles ENDING WITH the query) via a reversed-norm
+	// prefix GLOB so the matcher's suffix tier has candidates offline too. Gated by
+	// suffixMinQueryLen (same threshold the matcher uses) to avoid over-broad scans.
+	// normalizeTitle output is lowercase alphanumeric only, so it contains no GLOB
+	// metacharacters; the trailing "*" prefix glob is safe and index-usable.
+	if len([]rune(norm)) >= suffixMinQueryLen {
+		query += ` OR t.rev GLOB ?`
+		args = append(args, reverseRunes(norm)+"*")
+	}
+	rows, err := i.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}

@@ -73,6 +73,28 @@ func TestPickConfidentMangaBakaMatchLightNovelExcluded(t *testing.T) {
 	}
 }
 
+// TestPickConfidentMangaBakaMatchSuffixCJKCoverage verifies Finding A: the
+// suffix coverage gate counts runes, not bytes. The candidate's normalized
+// title is a multi-byte (CJK) prefix followed by an ASCII suffix equal to the
+// query. The query covers >= half the title by RUNE count, but under the old
+// byte-length coverage check the multi-byte prefix inflated len(normalized) and
+// wrongly rejected the match.
+func TestPickConfidentMangaBakaMatchSuffixCJKCoverage(t *testing.T) {
+	// Query "Shield Hero" normalizes to "shieldhero" (10 runes). The candidate
+	// "シールドShield Hero" normalizes to "シールド" (4 CJK runes, 12 bytes) +
+	// "shieldhero" (10 runes/bytes) = 14 runes / 22 bytes total.
+	//   rune coverage: 10*2 = 20 >= 14  -> passes
+	//   byte coverage: 10*2 = 20 >= 22  -> FAILS (the old, wrong check)
+	// So this match only surfaces once coverage counts runes.
+	cands := []mangaBakaSeries{
+		mbSeries(1, "シールドShield Hero"),
+	}
+	got := pickConfidentMangaBakaMatch("Shield Hero", cands)
+	if got == nil || got.ID != 1 {
+		t.Fatalf("CJK-prefixed suffix match failed (rune coverage): %+v", got)
+	}
+}
+
 func TestAcceptMangaBakaType(t *testing.T) {
 	cases := []struct {
 		t      string
