@@ -14,6 +14,17 @@ func ProviderIDsFromMatch(match Match) map[string]string {
 		ids[CapabilityID] = provider + ":" + providerID
 	}
 
+	for key, value := range match.ExternalIDs {
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		if key == "" || value == "" || key == provider {
+			continue
+		}
+		if _, exists := ids[key]; !exists {
+			ids[key] = value
+		}
+	}
+
 	return ids
 }
 

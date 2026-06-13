@@ -24,6 +24,8 @@ type Match struct {
 	BannerURL      string
 	Status         string
 	Language       string
+	ContentRating  string
+	ExternalIDs    map[string]string
 	PageCount      int
 	SeriesName     string
 	SeriesPosition string
