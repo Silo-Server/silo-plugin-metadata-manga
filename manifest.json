@@ -1,6 +1,6 @@
 {
   "plugin_id": "silo.manga-metadata",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "checksum": "__CHECKSUM__",
   "silo_api_version": "v1",
   "presentation": {
@@ -49,35 +49,77 @@
       "title": "Enabled sources",
       "description": "Comma-separated source IDs to search (mangabaka, mangadex). Empty uses the default set.",
       "json_schema": "{\"type\":\"object\",\"properties\":{\"value\":{\"type\":\"string\"}}}",
-      "admin_form": { "fields": [ { "key": "value", "label": "Source IDs", "control": "ADMIN_FORM_CONTROL_TEXT" } ] }
+      "admin_form": {
+        "fields": [
+          {
+            "key": "value",
+            "label": "Source IDs",
+            "control": "ADMIN_FORM_CONTROL_TEXT"
+          }
+        ]
+      }
     },
     {
       "key": "enable_local_dump",
       "title": "Use local MangaBaka dump",
       "description": "Download MangaBaka's database (~335MB, ~1.5GB on disk) for offline, rate-limit-free matching. Recommended for large libraries. Default off.",
       "json_schema": "{\"type\":\"object\",\"properties\":{\"value\":{\"type\":\"boolean\"}}}",
-      "admin_form": { "fields": [ { "key": "value", "label": "Enable local dump", "control": "ADMIN_FORM_CONTROL_SWITCH" } ] }
+      "admin_form": {
+        "fields": [
+          {
+            "key": "value",
+            "label": "Enable local dump",
+            "control": "ADMIN_FORM_CONTROL_SWITCH"
+          }
+        ]
+      }
     },
     {
       "key": "dump_path",
       "title": "Dump storage path",
       "description": "Override where the dump is stored. Default: OS cache dir. Point at a roomy volume if needed.",
       "json_schema": "{\"type\":\"object\",\"properties\":{\"value\":{\"type\":\"string\"}}}",
-      "admin_form": { "fields": [ { "key": "value", "label": "Path", "control": "ADMIN_FORM_CONTROL_TEXT" } ] }
+      "admin_form": {
+        "fields": [
+          {
+            "key": "value",
+            "label": "Path",
+            "control": "ADMIN_FORM_CONTROL_TEXT"
+          }
+        ]
+      }
     },
     {
       "key": "dump_refresh_hours",
       "title": "Dump refresh interval (hours)",
       "description": "How often to re-download the dump. Default 168 (weekly).",
       "json_schema": "{\"type\":\"object\",\"properties\":{\"value\":{\"type\":\"integer\"}}}",
-      "admin_form": { "fields": [ { "key": "value", "label": "Hours", "control": "ADMIN_FORM_CONTROL_NUMBER", "default_value": 168 } ] }
+      "admin_form": {
+        "fields": [
+          {
+            "key": "value",
+            "label": "Hours",
+            "control": "ADMIN_FORM_CONTROL_NUMBER",
+            "default_value": 168
+          }
+        ]
+      }
     },
     {
       "key": "enable_anilist_banners",
       "title": "AniList banner backdrops",
       "description": "MangaBaka has no banner art. When on, fetch a hero backdrop from AniList by id for matched series. Default on.",
       "json_schema": "{\"type\":\"object\",\"properties\":{\"value\":{\"type\":\"boolean\"}}}",
-      "admin_form": { "fields": [ { "key": "value", "label": "Enable banners", "control": "ADMIN_FORM_CONTROL_SWITCH", "default_value": true } ] }
+      "admin_form": {
+        "fields": [
+          {
+            "key": "value",
+            "label": "Enable banners",
+            "control": "ADMIN_FORM_CONTROL_SWITCH",
+            "default_value": true
+          }
+        ]
+      }
     }
   ]
 }
