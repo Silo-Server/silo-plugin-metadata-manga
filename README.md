@@ -1,4 +1,4 @@
-# silo-plugin-manga-metadata
+# silo-plugins-metadata-manga
 
 A [Silo](https://github.com/Silo-Server/silo-server) metadata provider plugin
 for **manga** libraries. It enriches `type='manga'` series with cover art,
