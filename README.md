@@ -19,11 +19,18 @@ as a deep fallback, [MangaDex](https://mangadex.org).
    `enable_local_dump` is on — via a locally-stored copy of its nightly
    database for offline, rate-limit-free matching. Covers come from the
    MangaBaka image CDN.
-2. **MangaDex** (deep fallback) — only consulted for titles MangaBaka does not
-   track (long-tail/scanlation). REST, no API key.
+2. **MangaDex** (deep fallback) — consulted when MangaBaka returns no confident
+   match or is unavailable, covering long-tail and scanlation titles. REST, no
+   API key.
 
 Hero **banners/backdrops** are fetched from AniList by id (MangaBaka records
 carry the AniList id), controllable via `enable_anilist_banners`.
+
+## Setup
+
+Install the plugin and add **Manga Metadata** to a manga library's provider
+chain. The defaults use live sources. For large libraries, the optional local
+MangaBaka dump needs about 1.5 GB of storage after download.
 
 ### Matching
 
@@ -54,9 +61,16 @@ upstream provider data is subject to each provider's own terms.
 ```sh
 make build        # → ./plugin (host-installable binary, version baked from git)
 make test
+mkdir -p dist     # build-all expects its output directory to exist
 make build-all    # cross-compile linux/amd64, linux/arm64, darwin/arm64 → dist/
 ```
 
+## Contributing
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. New
+sources, matching changes, and dump-format changes should start as an issue.
+
 ## License
 
-See [LICENSE](LICENSE).
+`silo-plugin-metadata-manga` is licensed under `AGPL-3.0-only`. See
+[LICENSE](LICENSE).
