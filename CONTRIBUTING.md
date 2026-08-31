@@ -39,7 +39,9 @@ isolation when those behaviors change.
 
 The normal suite is hermetic. `TestLiveMangaBakaIntegration` is skipped unless
 `MANGABAKA_LIVE=1`; run it separately for live API or banner-enrichment changes
-and report its result separately:
+and report its result separately. For banner-enrichment changes, confirm that
+the verbose output reports a non-empty banner URL; the live test does not assert
+that condition today.
 
 ```sh
 MANGABAKA_LIVE=1 GOWORK=off go test ./provider -run TestLiveMangaBakaIntegration -v
