@@ -65,6 +65,11 @@ mkdir -p dist     # build-all expects its output directory to exist
 make build-all    # cross-compile linux/amd64, linux/arm64, darwin/arm64 → dist/
 ```
 
+## Releases
+
+Releases are signed with GitHub artifact attestations. [CONTRIBUTING.md](CONTRIBUTING.md#release)
+describes how maintainers cut a release and how to verify a downloaded binary.
+
 ## Contributing
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. New
