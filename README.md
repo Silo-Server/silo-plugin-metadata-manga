@@ -62,7 +62,7 @@ upstream provider data is subject to each provider's own terms.
 make build        # → ./plugin (host-installable binary, version baked from git)
 make test
 mkdir -p dist     # build-all expects its output directory to exist
-make build-all    # cross-compile linux/amd64, linux/arm64, darwin/arm64 → dist/
+make build-all    # cross-compile linux/amd64, linux/arm64, darwin/arm64, freebsd/amd64, freebsd/arm64 → dist/
 ```
 
 ## Releases
